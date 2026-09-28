@@ -185,7 +185,7 @@ async function main() {
 main().catch((error: unknown) => {
   // Provider responses can contain private data; report only the safe exception type.
   console.error(
-    "Operator command failed; no existing records were overwritten.",
+    "Operator command failed. Completed steps may remain; retry using the same inputs.",
     error instanceof Error ? error.name : "UnknownError",
     error instanceof Error && error.constructor === Error
       ? error.message

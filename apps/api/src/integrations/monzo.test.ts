@@ -105,3 +105,69 @@ it("rejects missing balance data rather than treating it as zero", async () => {
     );
   await expect(new MonzoClient(fetcher).value("token")).rejects.toThrow("incomplete balances");
 });
+
+it("includes business and Flex with clear names and debt classification, without querying Flex pots or backing loans", async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/accounts")
+      return Response.json({
+        accounts: [
+          {
+            id: "personal",
+            description: "user_private-identifier",
+            type: "uk_retail",
+            closed: false,
+          },
+          {
+            id: "business",
+            description: "business_private-identifier",
+            type: "uk_business",
+            closed: false,
+          },
+          {
+            id: "flex",
+            description: "monzoflex_private-identifier",
+            type: "uk_monzo_flex",
+            closed: false,
+          },
+          {
+            id: "backing",
+            description: "Backing loan",
+            type: "uk_monzo_flex_backing_loan",
+            closed: false,
+          },
+          { id: "loan", description: "Loan", type: "uk_loan", closed: false },
+          { id: "rewards", description: "Rewards", type: "uk_rewards", closed: false },
+          { id: "closed-business", description: "Closed", type: "uk_business", closed: true },
+        ],
+      });
+    if (url.pathname === "/balance") {
+      const id = url.searchParams.get("account_id");
+      if (!["personal", "business", "flex"].includes(id!))
+        throw new Error("Unexpected balance request");
+      return Response.json({ balance: id === "flex" ? -12000 : 35589, currency: "GBP" });
+    }
+    if (url.pathname === "/pots") {
+      if (url.searchParams.get("current_account_id") === "flex")
+        throw new Error("Flex has no pots");
+      return Response.json({ pots: [] });
+    }
+    throw new Error("Unexpected endpoint");
+  });
+  const value = await new MonzoClient(fetcher, now).value("access");
+  expect(value.balances).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: "personal", name: "Monzo current account", kind: "cash" }),
+      expect.objectContaining({
+        id: "business",
+        name: "Monzo business account",
+        kind: "cash",
+        balance: 35589,
+      }),
+      expect.objectContaining({ id: "flex", name: "Monzo Flex", kind: "debt", balance: -12000 }),
+    ]),
+  );
+  expect(value.balances).toHaveLength(3);
+  expect(fetcher).toHaveBeenCalledTimes(6);
+  expect(JSON.stringify(value)).not.toContain("private-identifier");
+});

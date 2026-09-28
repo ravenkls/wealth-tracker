@@ -203,7 +203,9 @@ export class MonzoService {
             ...record.data,
             version: record.version + 1,
             archived: !value,
-            ...(value ? { name: value.name, workingBalance: value.balance } : {}),
+            ...(value
+              ? { name: value.name, kind: value.kind ?? "cash", workingBalance: value.balance }
+              : {}),
           },
         };
       });
@@ -260,7 +262,7 @@ export class MonzoService {
         data: {
           id: old?.id ?? randomUUID(),
           name: value.name,
-          kind: "cash",
+          kind: value.kind ?? "cash",
           archived: false,
           workingBalance: value.balance,
           version: (old?.version ?? 0) + 1,
@@ -346,7 +348,7 @@ export class MonzoService {
           {
             accountId: account.id,
             name: value.name,
-            kind: account.kind,
+            kind: value.kind ?? "cash",
             balance: value.balance,
             automation: { ...account.automation!, fetchedAt: bank.valuation!.fetchedAt },
           },

@@ -67,7 +67,7 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
         id: account.id,
         name: account.name,
         provider: "Monzo",
-        type: "Cash",
+        type: account.kind === "debt" ? "Debt" : "Cash",
         total: account.workingBalance ?? null,
         fetchedAt:
           data.bankConnections.find(

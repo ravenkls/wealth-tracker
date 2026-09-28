@@ -53,6 +53,7 @@ export interface MonzoBalance {
   parentAccountId: string;
   name: string;
   type: "account" | "pot";
+  kind?: "cash" | "debt";
   balance: Pence;
 }
 export interface MonzoValuation {
@@ -185,15 +186,28 @@ export class MonzoClient implements MonzoProvider {
         .filter(
           (account) =>
             !account.closed &&
-            (!account.type || account.type === "uk_retail" || account.type === "uk_retail_joint"),
+            (!account.type ||
+              ["uk_retail", "uk_retail_joint", "uk_business", "uk_monzo_flex"].includes(
+                account.type,
+              )),
         )
         .map(async (account) => {
+          const isFlex = account.type === "uk_monzo_flex";
+          const name = isFlex
+            ? "Monzo Flex"
+            : account.type === "uk_business"
+              ? "Monzo business account"
+              : account.type === "uk_retail_joint"
+                ? "Monzo joint account"
+                : "Monzo current account";
           const [rawBalance, rawPots] = await Promise.all([
             this.get(`/balance?${new URLSearchParams({ account_id: account.id })}`, accessToken),
-            this.get(
-              `/pots?${new URLSearchParams({ current_account_id: account.id })}`,
-              accessToken,
-            ),
+            isFlex
+              ? Promise.resolve({ pots: [] })
+              : this.get(
+                  `/pots?${new URLSearchParams({ current_account_id: account.id })}`,
+                  accessToken,
+                ),
           ]);
           const balance = balanceSchema.safeParse(rawBalance),
             pots = potsSchema.safeParse(rawPots);
@@ -203,7 +217,8 @@ export class MonzoClient implements MonzoProvider {
           balances.push({
             id: account.id,
             parentAccountId: account.id,
-            name: account.description,
+            name,
+            kind: isFlex ? "debt" : "cash",
             type: "account",
             balance: pence(balance.data.balance),
           });
@@ -213,6 +228,7 @@ export class MonzoClient implements MonzoProvider {
               id: pot.id,
               parentAccountId: account.id,
               name: pot.name,
+              kind: "cash",
               type: "pot",
               balance: pence(pot.balance),
             });

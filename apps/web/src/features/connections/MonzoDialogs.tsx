@@ -220,7 +220,11 @@ export function ManageMonzoDialog({
                                 {balance.name}
                               </Typography>
                               <Typography color="text.secondary" sx={{ fontSize: 12 }}>
-                                {balance.type === "pot" ? "Pot" : "Current account"}
+                                {balance.kind === "debt"
+                                  ? "Debt"
+                                  : balance.type === "pot"
+                                    ? "Pot"
+                                    : "Current account"}
                               </Typography>
                             </Box>
                           }

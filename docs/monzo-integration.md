@@ -5,14 +5,14 @@ Users connect their own confidential Monzo OAuth client. The server exchanges au
 - Production: `https://wealth.kristiansmith.dev/auth/monzo/callback`
 - Local development: `http://localhost:5173/auth/monzo/callback`
 
-Monzo's [Developer API documentation](https://docs.monzo.com/) describes personal/explicitly allowed usage rather than general public applications. Supplying individual clients is technically supported by this implementation, but is not an endorsement by Monzo of this distribution model. Actual product coverage must be checked against the returned accounts and pots; Flex, investments and products absent from the response remain manual.
+Monzo's [Developer API documentation](https://docs.monzo.com/) describes personal/explicitly allowed usage rather than general public applications. Supplying individual clients is technically supported by this implementation, but is not an endorsement by Monzo of this distribution model. Actual product coverage must be checked against the returned accounts and pots; Investments, standalone loans, rewards accounts and products absent from the response remain manual. The live Developer API was verified to return personal, business and Flex accounts. Flex is read via `/balance` without a pots request; backing loans are excluded to avoid double counting. Its signed GBP balance is classified as debt.
 
 ## Connection and account lifecycle
 
 1. Accounts → Connect Monzo accepts the user's client ID and secret and redirects to Monzo.
 2. The callback requires the same authenticated application session. After the user approves access in Monzo's mobile app, Load balances fetches current accounts and pots.
-3. Users select individual balances. Each becomes a new cash account under Automated tracking accounts. Existing manual accounts are not matched, modified or archived automatically. The selection screen reminds users to archive duplicates.
-4. Refresh reads each current account's `balance` and active pots' individual `balance` values, in GBP pence. It does not add `total_balance`, which already includes pots. Unknown product types are excluded.
+3. Users select individual balances. Each becomes a new cash account (or debt for Flex) under Automated tracking accounts. Existing manual accounts are not matched, modified or archived automatically. The selection screen reminds users to archive duplicates.
+4. Refresh reads each supported account's `balance` and active pots' individual `balance` values, in GBP pence. It does not add `total_balance`, which already includes pots. Unknown product types are excluded.
 5. A complete successful response updates working balances and names by stable remote IDs, and automatically archives selected accounts/pots that are closed, deleted or absent. Incomplete responses and API errors do not archive accounts or replace balances with zero.
 6. Save selection archives deselected automated accounts. Re-selecting an existing automated account restores its identity. Disconnect converts its accounts to manual, preserves their archive state, last balances, snapshot history and budget destinations, and removes stored credentials. Remote revocation is attempted; local disconnection still completes if Monzo is unavailable.
 
@@ -37,4 +37,4 @@ Saved bank readings retain provider, connection, external ID and fetch time. Cor
 
 Provider tests cover token exchange/rotation, nonrenewable credentials, main/pot double counting, deleted pots, partial responses and safe errors. DynamoDB integration tests cover OAuth binding/expiry/replay, secret isolation, concurrent and ambiguous refreshes, selection, archive/disconnect behavior, snapshot failure blocking and immutable recorded bank values.
 
-A real confidential-client authorization and comparison of returned balances with Monzo remains the final end-to-end check.
+The user confirmed real confidential-client authorization and matching personal account/pot balances in production. Business and Flex were subsequently verified to be available through the same token; their account types had been excluded by the initial filter. The user confirmed the API’s £0.00 Flex balance matches Monzo.

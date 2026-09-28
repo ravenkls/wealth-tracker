@@ -35,7 +35,7 @@ The existing spreadsheet is a reference for useful outputs and a potential sourc
 - Manually tracked investment account balances, included in net worth without holdings or cash-movement entry.
 - Manual pension balances, identified separately from accessible wealth.
 - Read-only Trading 212 connections supporting both Invest and Stocks ISA accounts.
-- Monzo automated cash balances using each user’s confidential OAuth client, with individual account/pot selection, encrypted tokens, automatic archiving of missing pots and conversion to manual accounts on disconnect.
+- Monzo automated personal/business cash balances, pots and Flex debt using each user’s confidential OAuth client, with individual account/pot selection, encrypted tokens, automatic archiving of missing pots and conversion to manual accounts on disconnect.
 - A guided workflow to record dated net-worth snapshots.
 - A dashboard with historical charts and asset breakdowns.
 - A monthly budget with income, expenses, annual-expense provisions, per-account funding instructions, and the spreadsheet's dynamic cash/investment allocation rules.
@@ -91,7 +91,7 @@ Allow users to add, rename, and archive accounts. An account used in a saved sna
 
 Manual rows can be grouped by type or archive status. Cash and Debt can be reclassified inline without changing balances or prior snapshots; other asset-type changes require a new account. Net cash includes both signed Cash and Debt balances. Manual investments join the investment total and asset filters. Inferred savings/spending are unavailable when either reading in an interval includes a manual investment, because no movement history is collected.
 
-The “Automated tracking accounts” table contains Trading 212 connections with an explicit Provider column and holdings access. Monzo current accounts and pots are also supported through user-supplied confidential OAuth clients. Users select balances individually; these become new automated cash accounts. Existing manual duplicates are archived by the user. See [Monzo integration](monzo-integration.md) for the approved connection, token, snapshot and lifecycle behavior.
+The “Automated tracking accounts” table contains Trading 212 connections with an explicit Provider column and holdings access. Monzo personal/business current accounts, pots and Flex debt are also supported through user-supplied confidential OAuth clients. Users select balances individually; these become new automated cash accounts, with Flex classified as debt. Existing manual duplicates are archived by the user. See [Monzo integration](monzo-integration.md) for the approved connection, token, snapshot and lifecycle behavior.
 
 ### Budget
 

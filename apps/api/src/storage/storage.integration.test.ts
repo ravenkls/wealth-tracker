@@ -849,3 +849,30 @@ it("records live Monzo cash, blocks failures, and prevents edits to recorded aut
   expect(corrected.balances).toEqual(saved.balances);
   expect(corrected.total).toBe(saved.total);
 });
+
+it("preserves automated Flex as signed debt through selection, snapshots and disconnect", async () => {
+  const f = await monzoFixture();
+  const id = await f.service.complete(f.owner, "session", f.state, "code");
+  const flex = {
+    id: "flex",
+    parentAccountId: "flex",
+    name: "Monzo Flex",
+    type: "account" as const,
+    kind: "debt" as const,
+    balance: pence(-12000),
+  };
+  f.provider.value.mockResolvedValue({ balances: [flex], fetchedAt: "2026-09-28T12:00:00Z" });
+  const bank = await f.service.refresh(f.owner, id);
+  await f.service.select(f.owner, id, ["flex"], bank.version);
+  const accounts = (await store.accounts.list(f.owner)).map((record) => record.data);
+  expect(accounts[0]).toMatchObject({ kind: "debt", workingBalance: -12000 });
+  expect(await f.service.snapshotBalances(f.owner, accounts)).toEqual([
+    expect.objectContaining({ kind: "debt", balance: -12000 }),
+  ]);
+  const current = (await store.banks.get(f.owner, id))!;
+  await f.service.disconnect(f.owner, id, current.version);
+  expect((await store.accounts.list(f.owner))[0]?.data).toMatchObject({
+    kind: "debt",
+    workingBalance: -12000,
+  });
+});

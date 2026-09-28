@@ -108,6 +108,7 @@ export interface BankBalance {
   parentAccountId: string;
   name: string;
   type: "account" | "pot";
+  kind?: "cash" | "debt";
   balance: Pence;
 }
 export interface BankConnection {

@@ -75,9 +75,29 @@ export class WealthService {
     return this.store.preferences.save(userId, id, preferences, expectedVersion);
   }
   async saveBudget(userId: string, plan: BudgetPlan, expectedVersion: number) {
-    const activeAccounts = (await this.store.accounts.list(userId)).filter(
-      (record) => !record.data.archived,
+    const [accounts, connections, previous] = await Promise.all([
+      this.store.accounts.list(userId),
+      this.store.connections.list(userId),
+      this.store.budgets.get(userId, "current"),
+    ]);
+    const activeAccounts = accounts.filter((record) => !record.data.archived);
+    const archivedCashIds = new Set(
+      accounts
+        .filter((record) => record.data.archived && isCashAccount(record.data.kind))
+        .map((record) => record.id),
     );
+    const retiredInvestmentIds = new Set([
+      ...accounts
+        .filter(
+          (record) =>
+            record.data.archived &&
+            (isCashAccount(record.data.kind) || record.data.kind === "investment"),
+        )
+        .map((record) => record.id),
+      ...connections.filter((record) => record.data.disconnected).map((record) => record.id),
+    ]);
+    const unchangedRetired = (id: string, prior: string | null | undefined, retired: Set<string>) =>
+      id === prior && retired.has(id);
     const reserveIds = new Set(
       activeAccounts.filter((record) => record.data.kind === "cash").map((record) => record.id),
     );
@@ -94,20 +114,38 @@ export class WealthService {
         .map((record) => record.id),
     );
     const connectionIds = new Set(
-      (await this.store.connections.list(userId))
-        .filter((record) => !record.data.disconnected)
-        .map((record) => record.id),
+      connections.filter((record) => !record.data.disconnected).map((record) => record.id),
     );
-    for (const line of [...plan.expenses, ...plan.savingsAllocations])
-      if (line.destinationId && !accountIds.has(line.destinationId))
-        throw new InputError("Choose an active cash or debt account for each budget destination.");
-    if (plan.cashDestinationId && !accountIds.has(plan.cashDestinationId))
+    for (const section of ["expenses", "savingsAllocations"] as const)
+      for (const line of plan[section])
+        if (
+          line.destinationId &&
+          !accountIds.has(line.destinationId) &&
+          !unchangedRetired(
+            line.destinationId,
+            previous?.data[section].find((item) => item.id === line.id)?.destinationId,
+            archivedCashIds,
+          )
+        )
+          throw new InputError(
+            `${line.name}: choose an active cash or debt account for its destination.`,
+          );
+    if (
+      plan.cashDestinationId &&
+      !accountIds.has(plan.cashDestinationId) &&
+      !unchangedRetired(plan.cashDestinationId, previous?.data.cashDestinationId, archivedCashIds)
+    )
       throw new InputError("Choose an active cash or debt destination.");
     if (
       plan.investmentDestinationId &&
       !connectionIds.has(plan.investmentDestinationId) &&
       !investmentIds.has(plan.investmentDestinationId) &&
-      !accountIds.has(plan.investmentDestinationId)
+      !accountIds.has(plan.investmentDestinationId) &&
+      !unchangedRetired(
+        plan.investmentDestinationId,
+        previous?.data.investmentDestinationId,
+        retiredInvestmentIds,
+      )
     )
       throw new InputError("Choose an active investment funding destination.");
     if (

@@ -92,6 +92,15 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
     ...data.accounts.filter((account) => !account.archived && account.kind === "investment"),
     ...data.connections,
   ];
+  const hasUnavailableDestinations =
+    [...expenses, ...allocations].some(
+      (line) =>
+        line.destinationId && !cashAccounts.some((account) => account.id === line.destinationId),
+    ) ||
+    (!!settings.cashDestinationId &&
+      !cashAccounts.some((account) => account.id === settings.cashDestinationId)) ||
+    (!!settings.investmentDestinationId &&
+      !destinations.some((account) => account.id === settings.investmentDestinationId));
   const categories: string[] = [];
   for (const line of [...expenses, ...allocations]) {
     const category = canonicalCategory(line.category, categories);
@@ -259,7 +268,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
       <MenuItem value="">Unassigned</MenuItem>
       {settings[key] && !options.some((account) => account.id === settings[key]) && (
         <MenuItem value={settings[key]} disabled>
-          Unavailable account — choose another
+          {unavailableDestinationLabel(settings[key], data)}
         </MenuItem>
       )}
       {options.map((account) => (
@@ -294,6 +303,11 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
       {validationError && (
         <Alert severity="warning" sx={{ mb: 3 }}>
           {validationError} Changes are not saved.
+        </Alert>
+      )}
+      {hasUnavailableDestinations && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          Some destinations are archived or disconnected. You can replace them one at a time.
         </Alert>
       )}
       {chartPlan && (
@@ -712,7 +726,10 @@ function LineEditor({
             minWidth: 230,
             groupable: true,
             value: (line) =>
-              accounts.find((account) => account.id === line.destinationId)?.name ?? "Unassigned",
+              accounts.find((account) => account.id === line.destinationId)?.name ??
+              (line.destinationId
+                ? unavailableDestinationLabel(line.destinationId, data)
+                : "Unassigned"),
             render: (line) => (
               <EditableCell
                 label={line.name + " destination"}
@@ -722,7 +739,12 @@ function LineEditor({
                   ...accounts.map((account) => ({ value: account.id, label: account.name })),
                   ...(line.destinationId &&
                   !accounts.some((account) => account.id === line.destinationId)
-                    ? [{ value: line.destinationId, label: "Unavailable account" }]
+                    ? [
+                        {
+                          value: line.destinationId,
+                          label: unavailableDestinationLabel(line.destinationId, data),
+                        },
+                      ]
                     : []),
                 ]}
                 onCommit={(destinationId) =>
@@ -785,4 +807,11 @@ function LineEditor({
       </Button>
     </Stack>
   );
+}
+
+function unavailableDestinationLabel(id: string, data: AppData) {
+  const account = data.accounts.find((item) => item.id === id);
+  return account
+    ? `${account.name} (${account.archived ? "archived" : "unavailable"})`
+    : "Unavailable account";
 }

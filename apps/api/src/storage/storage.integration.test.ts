@@ -999,3 +999,150 @@ it("persists reserve settings and essential expenses without changing allocation
   await service.saveBudget("reserve-user", { ...input.plan, emergencyAccountIds: [] }, 1);
   expect((await service.bootstrap("reserve-user")).budget?.plan.emergencyAccountIds).toEqual([]);
 });
+
+it("replaces archived budget destinations with automated Monzo accounts one at a time", async () => {
+  const { WealthService } = await import("../application/wealth-service");
+  const { budgetInput } = await import("../application/schemas");
+  const service = new WealthService(store);
+  const owner = "budget-destination-repair";
+  const [oldCash, oldBills, monzoCash, monzoDebt] = [
+    randomUUID(),
+    randomUUID(),
+    randomUUID(),
+    randomUUID(),
+  ] as const;
+  for (const id of [oldCash, oldBills])
+    await service.saveAccount(owner, {
+      id,
+      name: "Manual account",
+      kind: "cash",
+      archived: false,
+      expectedVersion: 0,
+    });
+  for (const [id, kind] of [
+    [monzoCash, "cash"],
+    [monzoDebt, "debt"],
+  ] as const)
+    await store.accounts.save(
+      owner,
+      id,
+      {
+        id,
+        name: `Monzo ${kind}`,
+        kind,
+        archived: false,
+        version: 1,
+        automation: { provider: "monzo", connectionId: "monzo-bank", externalId: id },
+      },
+      0,
+    );
+  const initial = budgetInput.parse({
+    expectedVersion: 0,
+    plan: {
+      salary: 300000,
+      payFrequency: "monthly",
+      sideIncome: 0,
+      expenses: [
+        {
+          id: randomUUID(),
+          name: "Groceries",
+          amount: 20000,
+          frequency: "monthly",
+          destinationId: oldCash,
+        },
+        {
+          id: randomUUID(),
+          name: "Rent",
+          amount: 100000,
+          frequency: "monthly",
+          destinationId: oldBills,
+        },
+      ],
+      savingsAllocations: [
+        {
+          id: randomUUID(),
+          name: "Holiday",
+          amount: 20000,
+          frequency: "monthly",
+          destinationId: oldBills,
+        },
+      ],
+      emergencyMonths: 3,
+      targetCashShare: 0.2,
+      aggressiveness: 1,
+      cashDestinationId: oldCash,
+      investmentDestinationId: oldBills,
+      cashGoal: null,
+      endOfYearGoal: null,
+      depositGoal: null,
+      depositInvestmentFraction: null,
+      depositSavingsFraction: null,
+      jobStartMonth: null,
+    },
+  }).plan;
+  await service.saveBudget(owner, initial, 0);
+  for (const id of [oldCash, oldBills])
+    await service.saveAccount(owner, {
+      id,
+      name: "Manual account",
+      kind: "cash",
+      archived: true,
+      expectedVersion: 1,
+    });
+  const first = {
+    ...initial,
+    expenses: initial.expenses.map((line, index) =>
+      index === 0 ? { ...line, destinationId: monzoCash } : line,
+    ),
+  };
+  await service.saveBudget(owner, first, 1);
+  const second = {
+    ...first,
+    expenses: first.expenses.map((line) => ({ ...line, essential: true })),
+  };
+  await service.saveBudget(owner, second, 2);
+  expect((await service.bootstrap(owner)).budget?.plan.expenses).toMatchObject([
+    { destinationId: monzoCash, essential: true },
+    { destinationId: oldBills, essential: true },
+  ]);
+  const repaired = {
+    ...second,
+    cashDestinationId: monzoCash,
+    investmentDestinationId: monzoCash,
+    expenses: second.expenses.map((line) => ({ ...line, destinationId: monzoDebt })),
+    savingsAllocations: second.savingsAllocations.map((line) => ({
+      ...line,
+      destinationId: monzoCash,
+    })),
+  };
+  await service.saveBudget(owner, repaired, 3);
+  expect((await service.bootstrap(owner)).budget?.plan.cashDestinationId).toBe(monzoCash);
+  await expect(service.saveBudget(owner, repaired, 3)).rejects.toThrow("changed in another tab");
+  await expect(
+    service.saveBudget(
+      owner,
+      { ...repaired, expenses: [{ ...repaired.expenses[0]!, destinationId: oldCash }] },
+      4,
+    ),
+  ).rejects.toThrow("Groceries: choose an active");
+  await expect(
+    service.saveBudget(
+      owner,
+      {
+        ...repaired,
+        expenses: [{ ...repaired.expenses[0]!, id: randomUUID(), destinationId: oldBills }],
+      },
+      4,
+    ),
+  ).rejects.toThrow("active cash or debt");
+  await expect(
+    service.saveBudget(
+      owner,
+      { ...repaired, expenses: [{ ...repaired.expenses[0]!, destinationId: randomUUID() }] },
+      4,
+    ),
+  ).rejects.toThrow("active cash or debt");
+  await expect(service.saveBudget("other-budget-owner", repaired, 0)).rejects.toThrow(
+    "active cash or debt",
+  );
+});

@@ -1,0 +1,12 @@
+name: wealth-tracker
+services:
+  dynamodb:
+    build: ./tooling/dynamodb
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/data", "-disableTelemetry"]
+    working_dir: /home/dynamodblocal
+    ports:
+      - "127.0.0.1:${DYNAMODB_PORT:-8000}:8000"
+    volumes:
+      - dynamodb-data:/data
+volumes:
+  dynamodb-data:

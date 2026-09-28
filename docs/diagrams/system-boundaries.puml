@@ -1,0 +1,49 @@
+@startuml system-boundaries
+title Wealth Tracker - confirmed system boundaries
+left to right direction
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+actor User
+node "User's browser" {
+  component "React + TypeScript\nOverview / Accounts / Budget / History\nSnapshot recording" as UI
+}
+cloud "Google" as Google
+cloud "Trading 212\nInvest + Stocks ISA" as T212
+cloud "AWS - Terraform; regional resources in eu-west-2" {
+  component "CloudFront\nFrontend delivery" as Hosting
+  component "S3\nReact build assets" as Assets
+  component "API Gateway HTTP API\neu-west-2" as Ingress
+  node "One AWS Lambda" {
+    component "tRPC backend\nUser ownership checks\nValidation and calculations\nProvider integration" as API
+    component "ElectroDB\nPersistence access" as ORM
+  }
+  database "One DynamoDB table\nElectroDB entities\nUser-scoped pk/sk; no GSIs" as DB
+  component "AWS KMS\nCredential encryption/decryption\nOne key per environment" as KMS
+}
+
+User --> UI : interact
+Hosting --> Assets : retrieve frontend assets
+Hosting --> UI : deliver frontend
+UI --> Hosting : same-origin /api/* and /auth/*
+Hosting --> Ingress : forward backend requests
+Ingress --> API : route requests
+UI ..> Google : Google sign-in
+API ..> Google : direct Google sign-in\nOpaque cookie sessions
+API --> ORM : user-scoped data access
+ORM --> DB : read / write
+API --> KMS : encrypt / decrypt credentials
+API --> T212 : read account totals and holdings
+
+note bottom of UI
+  Snapshot identity is YYYY-MM per user.
+  Localise UTC audit timestamps only.
+  Saved dashboard values come from history.
+  Provider credentials are never returned to the browser.
+end note
+note bottom of DB
+  Accounts, budget, connection metadata,
+  snapshots, correction revisions and credential ciphertext.
+  Session hashes and records; no snapshot drafts.
+end note
+@enduml

@@ -1,0 +1,35 @@
+{
+  "name": "@wealth/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./types": {
+      "types": "./src/types.ts"
+    }
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/local/server.ts",
+    "db:init": "node --env-file-if-exists=../../.env --import tsx src/local/init.ts",
+    "db:check": "node --env-file-if-exists=../../.env --import tsx src/local/check.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1141.0",
+    "@aws-sdk/client-kms": "3.1141.0",
+    "@aws-sdk/client-secrets-manager": "3.1141.0",
+    "@aws-sdk/lib-dynamodb": "3.1141.0",
+    "@trpc/server": "11.19.0",
+    "@wealth/domain": "workspace:*",
+    "decimal.js": "10.6.0",
+    "electrodb": "3.9.3",
+    "google-auth-library": "11.1.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.163",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15"
+  }
+}

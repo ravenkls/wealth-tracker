@@ -1,0 +1,65 @@
+import { month, parseGbp } from "@wealth/domain";
+import type { OverviewData } from "../features/overview/model";
+
+export const overviewFixture: OverviewData = {
+  month: month("2026-09"),
+  previousMonth: month("2026-08"),
+  accounts: [
+    {
+      id: "current",
+      name: "Current account",
+      description: "Cash",
+      category: "cash",
+      balance: parseGbp("2450"),
+      change: parseGbp("150"),
+    },
+    {
+      id: "savings",
+      name: "Savings account",
+      description: "Cash",
+      category: "cash",
+      balance: parseGbp("16800"),
+      change: parseGbp("400"),
+    },
+    {
+      id: "credit",
+      name: "Credit card",
+      description: "Cash",
+      category: "cash",
+      balance: parseGbp("-800"),
+      change: parseGbp("100"),
+    },
+    {
+      id: "investments",
+      name: "Trading 212",
+      description: "Stocks ISA",
+      category: "investments",
+      balance: parseGbp("62380"),
+      change: parseGbp("2220"),
+    },
+    {
+      id: "pension",
+      name: "Workplace pension",
+      description: "Pension",
+      category: "pensions",
+      balance: parseGbp("43750"),
+      change: parseGbp("850"),
+    },
+  ],
+  history: [
+    ["2025-10", "92400"],
+    ["2025-11", "95120"],
+    ["2025-12", "97800"],
+    ["2026-01", "101250"],
+    ["2026-02", "100600"],
+    ["2026-03", "104800"],
+    ["2026-04", "107100"],
+    ["2026-05", "110450"],
+    ["2026-06", "113800"],
+    ["2026-07", "116500"],
+    ["2026-08", "120860"],
+    ["2026-09", "124580"],
+  ].map(([period, total]) => ({ month: month(period!), total: parseGbp(total!) })),
+  budget: { income: parseGbp("4200"), spending: parseGbp("2450") },
+  cashGoal: parseGbp("25000"),
+};

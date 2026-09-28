@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0c0d10" />
+    <script>
+      (() => {
+        let mode = "dark";
+        try {
+          if (localStorage.getItem("wealth-theme") === "light") mode = "light";
+        } catch {}
+        const background = mode === "light" ? "#f4f5f7" : "#0c0d10";
+        document.documentElement.dataset.theme = mode;
+        document.documentElement.style.colorScheme = mode;
+        document.documentElement.style.backgroundColor = background;
+        document.querySelector('meta[name="theme-color"]').setAttribute("content", background);
+      })();
+    </script>
+    <title>Wealth</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

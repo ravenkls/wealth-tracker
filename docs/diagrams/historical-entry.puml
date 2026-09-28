@@ -1,0 +1,54 @@
+@startuml historical-entry
+title Historical entry and recorded-history reads
+hide footbox
+skinparam shadowing false
+actor User
+participant "React app" as UI
+participant "tRPC backend\non Lambda" as API
+database "DynamoDB\nvia ElectroDB" as DB
+
+User -> UI : Add a past month
+UI --> User : Choose month and enter historical values
+note over User, API
+  Enter three GBP monthly totals:
+  net cash, investments and pension.
+  No individual account balances required.
+end note
+User -> UI : Review and save historical entry
+UI -> API : Submit YYYY-MM, totals, operation ID and expected revision\nReplacement confirmation if needed
+API -> API : Validate authenticated ownership and inputs
+note right of API
+  No Trading 212 request.
+  Today's prices do not represent a past month.
+end note
+API -> DB : Read existing month/revision
+DB --> API : Existing record or absent
+alt Existing month not confirmed or revision is stale
+  API --> UI : Replacement confirmation or reload required
+  UI --> User : Warn before replacing month; allow cancel
+else New month or confirmed replacement
+  API -> DB : Atomically save YYYY-MM and audit timestamps\nCheck expected revision; preserve old revision; deduplicate retry
+  alt Month changed concurrently
+    API --> UI : Conflict; reload and reconfirm
+  else Saved
+    DB --> API : Saved monthly record
+    API --> UI : Confirmation
+  end
+end
+
+== Read recorded history ==
+User -> UI : Open dashboard or history
+UI -> API : Request recorded values
+API -> DB : Read this user's recorded history
+DB --> API : Saved records
+API --> UI : Recorded values and YYYY-MM months
+UI --> User : Totals, breakdowns and chart
+note over UI, DB
+  Reading history does not fetch investment prices
+  or rewrite existing snapshots.
+  One active snapshot per user and YYYY-MM.
+  Charts use that snapshot, regardless of source.
+  Previous revisions remain inspectable,
+  not additional chart points.
+end note
+@enduml

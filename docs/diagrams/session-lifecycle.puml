@@ -1,0 +1,49 @@
+@startuml session-lifecycle
+title Direct Google sign-in and opaque application session
+hide footbox
+skinparam shadowing false
+actor User
+participant "Browser" as Browser
+participant "Single Lambda backend" as API
+participant "Google" as Google
+database "Single DynamoDB table" as DB
+User -> Browser : Sign in with Google
+Browser -> API : GET /auth/google
+API -> DB : Save hashed state + browser binding,\nnonce, PKCE verifier and ten-minute expiry
+API --> Browser : Binding cookie + Google redirect
+Browser -> Google : Sign in with state, nonce and PKCE challenge
+Google --> Browser : Redirect with authorization code and state
+Browser -> API : GET /auth/google/callback?code=...&state=...\nBrowser-binding cookie
+API -> DB : Consume matching unexpired attempt once
+API -> Google : Exchange code with PKCE verifier
+Google --> API : Signed ID token
+API -> API : Verify issuer, audience, expiry, nonce and subject
+API -> API : Generate random opaque session token
+API -> DB : Store token hash, user binding and expiry = now + 45 days
+DB --> API : Session stored
+API --> Browser : Secure, HttpOnly cookie with matching expiry
+== Protected requests ==
+Browser -> API : Request with session cookie
+API -> API : Hash received session token
+API -> DB : Read matching session
+DB --> API : Session record or absent
+API -> API : Validate session and expiry before any renewal
+alt Valid session with qualifying activity
+  API -> DB : Extend expiry to activity time + 45 days\nonly if session is still valid and not revoked
+  DB --> API : Renewal result
+  API --> Browser : User-scoped result and matching cookie expiry\nor unauthenticated if session was revoked
+else Missing, expired or revoked session
+  API --> Browser : Unauthenticated; do not revive session
+end
+== Logout ==
+Browser -> API : Log out current session
+API -> DB : Revoke current session immediately
+DB --> API : Revoked
+API --> Browser : Clear session cookie
+note over API, DB
+  Check expiry in application logic.
+  A storage cleanup delay must not extend login.
+  No absolute maximum lifetime.
+  Concurrent renewal must not undo logout.
+end note
+@enduml

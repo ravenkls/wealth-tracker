@@ -1,0 +1,34 @@
+@startuml budget-savings
+title Budgeting and savings - approved rules and interval inputs
+left to right direction
+skinparam componentStyle rectangle
+skinparam shadowing false
+component "Current budget and settings" as Budget
+component "Recorded balances" as History
+component "Trading 212 history + confirmed\ninterval income and pension cash payments\nActual UTC capture interval" as Flows
+node "Existing single Lambda" {
+  component "Spreadsheet-derived\nbudget allocation rules" as Allocation
+  component "Inferred savings/spending\nand projection calculations" as Metrics
+}
+component "Budget view\nFunding plan, emergency target,\ncash/investment split" as Plan
+component "Existing dashboard/history views\nGoals, projections, savings rate,\ninferred spending" as Results
+Budget --> Allocation
+History --> Allocation : recorded cash share
+Budget --> Metrics : goal settings and parameters
+History --> Metrics
+Flows --> Metrics
+Allocation --> Plan
+Metrics --> Results
+note bottom of Flows
+  Balances alone are insufficient.
+  Missing cash flows must not become zero.
+  Read-only Trading 212 history access is approved.
+  Full brokerage value stays in investments.
+  Pensions are excluded from savings rate.
+  Complete intervals are normalised by elapsed days.
+end note
+note bottom of Allocation
+  Funding instructions only.
+  No transfer/trade execution or purchase timing.
+end note
+@enduml

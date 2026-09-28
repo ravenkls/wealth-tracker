@@ -1,0 +1,27 @@
+@startuml local-development
+title Local development - confirmed process layout
+left to right direction
+skinparam componentStyle rectangle
+skinparam shadowing false
+node "Developer machine" {
+  component "Browser" as Browser
+  component "React / Vite on Node 24\nlocalhost:5173" as Frontend
+  node "Local backend - host process" {
+    component "tRPC API\nShared application logic" as LocalAPI
+    component "ElectroDB\nShared entity definitions" as LocalORM
+  }
+  node "Docker Compose" {
+    database "DynamoDB Local\nSingle application table" as LocalDB
+  }
+}
+Frontend --> Browser : serve app
+Browser --> Frontend : /api/* and /auth/*
+Frontend --> LocalAPI : same-origin proxy
+LocalAPI --> LocalORM : persistence operations
+LocalORM --> LocalDB : configured local endpoint
+note bottom of LocalAPI
+  Real Google OAuth; HTTP cookie exception on localhost.
+  AES-256-GCM credential key in ignored .env.
+  Only DynamoDB runs in Compose.
+end note
+@enduml

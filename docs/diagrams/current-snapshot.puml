@@ -1,0 +1,64 @@
+@startuml current-snapshot
+title Current snapshot - one fetch-and-save action
+hide footbox
+skinparam shadowing false
+actor User
+participant "React app" as UI
+participant "Single Lambda backend" as API
+participant "AWS KMS" as KMS
+participant "Trading 212" as T212
+database "Single DynamoDB table\nvia ElectroDB" as DB
+User -> UI : Enter balances for current month YYYY-MM
+User -> UI : Record snapshot
+UI -> API : Month, balances, note, operation ID, expected revision\nSession cookie; replacement confirmation if needed
+API -> DB : Validate hashed session token and user ownership
+DB --> API : Session, accounts and existing month/revision
+note over API, DB
+  Expired/invalid sessions are rejected.
+  Duplicate-save detection must return an existing
+  saved result without recording again.
+  Read permanent operation receipt by ID and digest.
+  Atomic write: active snapshot + revision + receipt.
+end note
+alt Existing month not confirmed or expected revision is stale
+  API --> UI : Replacement confirmation or reload required
+  UI --> User : Warn before replacing month; allow cancel
+else New month or confirmed replacement of expected revision
+opt Connected investment accounts
+  API -> DB : Read connection identities and credential ciphertext
+  DB --> API : Encrypted credentials
+  API -> KMS : Decrypt credentials for provider calls
+  KMS --> API : Credentials for server-side use
+  loop Each connected account
+    API -> T212 : Fetch account summary and holdings
+    T212 --> API : GBP values or failure
+  end
+end
+alt Required credential access or provider request fails
+  API --> UI : Recording failed; no snapshot saved
+  UI --> User : Keep current form values; offer retry
+else All required reads succeed
+  API -> API : Calculate totals for YYYY-MM; set audit timestamps
+  API -> DB : Atomically save month with expected revision\nPreserve old revision; enforce idempotency
+  alt Saved successfully
+    DB --> API : Saved snapshot
+    API --> UI : Saved balances, total and timestamps
+    UI --> User : Show saved result and updated history
+    UI -> API : Start/resume bounded provider-history refresh
+    note over UI, API
+      Save is already committed. Inferred metrics wait
+      for complete history; valuation failure blocks save.
+    end note
+  else Month changed concurrently
+    API --> UI : Conflict; reload and reconfirm replacement
+  else Save fails or result is uncertain
+    API --> UI : No confirmed result; safe retry required
+    note over API, DB
+      A lost response may follow a successful write.
+      Retrying must resolve that saved result,
+      not create another snapshot or revision.
+    end note
+  end
+end
+end
+@enduml

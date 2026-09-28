@@ -80,7 +80,9 @@ export const correctionInput = z.object({
   periodIncome: nonnegative.nullable(),
   cashPensionContributions: nonnegative.nullable(),
 });
+export const connectionDisplayMode = z.enum(["account", "holdings"]);
 export const connectionInput = z.object({
+  displayMode: connectionDisplayMode.default("account"),
   name: z.string().trim().min(1).max(100),
   accountType: z.enum(["invest", "isa"]),
   apiKey: z.string().trim().min(1).max(512),

@@ -49,3 +49,7 @@ Imported history can be enriched with date-only London readings, declared Tradin
 ## Monzo automated cash tracking
 
 Implemented user-supplied confidential OAuth clients, session-bound callbacks, encrypted rotating tokens, account/pot selection, automated cash snapshot readings and missing-pot archiving. Disconnect converts tracked accounts to manual. Existing manual accounts and saved history are preserved. See [Monzo integration](monzo-integration.md) for setup and lifecycle details. The user confirmed real authorization and matching personal account/pot balances. Live API inspection also confirmed business and Flex availability; both are now supported, with Flex classified as debt and its £0 balance confirmed by the user.
+
+## Connection controls and holdings display
+
+Automated tracking uses one Connect Account menu and per-row action menus leading to Manage Monzo or Manage Trading 212. Trading 212 management contains valuations, holdings, history refresh/retry and disconnect controls. Its table display is chosen during connection and can be changed later with autosave. Existing connections default to one account row; the holdings view replaces that row with individual holdings, uninvested cash and any reconciliation difference. This preference is stored per connection with version checks. Cash remains investments for calculations, and snapshots and savings continue using the account once. Monzo connections with no selected balances retain a management row in the table.

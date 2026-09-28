@@ -16,6 +16,7 @@ import {
   accountInput,
   budgetInput,
   connectionInput,
+  connectionDisplayMode,
   correctionInput,
   currentSnapshotInput,
   historicalSnapshotInput,
@@ -42,7 +43,12 @@ export interface ApiDependencies {
   >;
   readonly connections: Pick<
     ConnectionService,
-    "connect" | "disconnect" | "refreshValue" | "restartHistory" | "advanceHistory"
+    | "connect"
+    | "disconnect"
+    | "refreshValue"
+    | "restartHistory"
+    | "advanceHistory"
+    | "setDisplayMode"
   >;
   readonly snapshots: Pick<SnapshotService, "record" | "historical" | "correct" | "inlineCorrect">;
 }
@@ -185,6 +191,18 @@ export function createRouter(d: ApiDependencies) {
         ),
     }),
     connections: router({
+      setDisplayMode: protectedProcedure
+        .input(z.object({ id: identifier, displayMode: connectionDisplayMode, expectedVersion }))
+        .mutation(({ ctx, input }) =>
+          run(() =>
+            d.connections.setDisplayMode(
+              ctx.user.userId,
+              input.id,
+              input.displayMode,
+              input.expectedVersion,
+            ),
+          ),
+        ),
       connect: protectedProcedure
         .input(connectionInput)
         .mutation(({ ctx, input }) => run(() => d.connections.connect(ctx.user.userId, input))),

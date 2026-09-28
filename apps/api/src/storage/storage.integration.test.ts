@@ -876,3 +876,58 @@ it("preserves automated Flex as signed debt through selection, snapshots and dis
     workingBalance: -12000,
   });
 });
+
+it("persists Trading 212 display choices without changing valuations and rejects stale or cross-user changes", async () => {
+  const { ConnectionService } = await import("../application/connection-service");
+  const { LocalCredentialCipher } = await import("../auth/encryption");
+  const provider: import("../integrations/trading212").InvestmentProvider = {
+    value: async () => ({
+      providerId: "display",
+      total: pence(12500),
+      cash: pence(2500),
+      positions: [{ ticker: "ABC", name: "Example", quantity: 2, value: pence(10000) }],
+      fetchedAt: "2026-09-28T12:00:00Z",
+    }),
+    transactions: async () => ({ events: [], nextPage: null }),
+    dividends: async () => ({ events: [], nextPage: null }),
+  };
+  const service = new ConnectionService(
+    store,
+    provider,
+    new LocalCredentialCipher(Buffer.alloc(32, 9).toString("base64")),
+  );
+  const connected = await service.connect("display-user", {
+    name: "Stocks ISA",
+    accountType: "isa",
+    apiKey: "test",
+    apiSecret: "test",
+    displayMode: "holdings",
+  });
+  expect(connected.displayMode).toBe("holdings");
+  const updated = await service.setDisplayMode(
+    "display-user",
+    "display",
+    "account",
+    connected.version,
+  );
+  expect((await store.connections.get("display-user", "display"))?.data.displayMode).toBe(
+    "account",
+  );
+  expect(updated.valuation).toEqual(connected.valuation);
+  expect(updated.history).toEqual(connected.history);
+  expect(updated).not.toHaveProperty("encryptedCredentials");
+  await expect(
+    service.setDisplayMode("display-user", "display", "holdings", connected.version),
+  ).rejects.toThrow("changed in another tab");
+  await expect(
+    service.setDisplayMode("other-display-user", "display", "holdings", updated.version),
+  ).rejects.toThrow("Connection not found");
+  expect((await service.refreshValue("display-user", "display")).displayMode).toBe("account");
+  expect(await store.snapshots.list("display-user")).toEqual([]);
+  expect(await store.accounts.list("display-user")).toEqual([]);
+  const latest = (await store.connections.get("display-user", "display"))!;
+  await service.disconnect("display-user", "display", latest.version);
+  await expect(
+    service.setDisplayMode("display-user", "display", "holdings", latest.version + 1),
+  ).rejects.toThrow("Connection not found");
+});

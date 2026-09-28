@@ -1,5 +1,6 @@
 import type {
   Connection,
+  ConnectionDisplayMode,
   HistoryProgress,
   PublicConnection,
   SavedInvestment,
@@ -36,7 +37,13 @@ export class ConnectionService {
   ) {}
   async connect(
     userId: string,
-    input: { name: string; accountType: "invest" | "isa"; apiKey: string; apiSecret: string },
+    input: {
+      name: string;
+      accountType: "invest" | "isa";
+      apiKey: string;
+      apiSecret: string;
+      displayMode?: ConnectionDisplayMode;
+    },
   ) {
     const credentials = { apiKey: input.apiKey, apiSecret: input.apiSecret };
     const value = await this.provider.value(credentials);
@@ -54,6 +61,7 @@ export class ConnectionService {
       positions: [...value.positions],
     };
     const connection: Connection = {
+      displayMode: input.displayMode ?? "account",
       id: value.providerId,
       name: input.name,
       accountType: input.accountType,
@@ -68,6 +76,18 @@ export class ConnectionService {
     };
     await this.store.connections.save(userId, connection.id, connection, version - 1);
     return publicConnection(connection);
+  }
+  async setDisplayMode(
+    userId: string,
+    id: string,
+    displayMode: ConnectionDisplayMode,
+    expectedVersion: number,
+  ) {
+    const existing = await this.store.connections.get(userId, id);
+    if (!existing || existing.data.disconnected) throw new InputError("Connection not found.");
+    const updated = { ...existing.data, displayMode, version: expectedVersion + 1 };
+    await this.store.connections.save(userId, id, updated, expectedVersion);
+    return publicConnection(updated);
   }
   async disconnect(userId: string, id: string, version: number) {
     const existing = await this.store.connections.get(userId, id);

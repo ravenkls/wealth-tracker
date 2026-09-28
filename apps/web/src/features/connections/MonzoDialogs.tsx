@@ -147,9 +147,7 @@ export function ManageMonzoDialog({
   const disabled = action.isPending;
   return (
     <Dialog open fullWidth maxWidth="sm" onClose={disabled ? undefined : onClose}>
-      <DialogTitle>
-        {confirmDisconnect ? "Disconnect Monzo?" : "Monzo accounts and pots"}
-      </DialogTitle>
+      <DialogTitle>{confirmDisconnect ? "Disconnect Monzo?" : "Manage Monzo"}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           {action.isError && <Alert severity="error">{errorMessage(action.error)}</Alert>}

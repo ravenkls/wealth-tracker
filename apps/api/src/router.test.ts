@@ -46,6 +46,7 @@ function mockServices() {
       revisions: vi.fn<WealthService["revisions"]>(),
     },
     connections: {
+      setDisplayMode: vi.fn<ConnectionService["setDisplayMode"]>(),
       connect: vi.fn<ConnectionService["connect"]>(),
       disconnect: vi.fn<ConnectionService["disconnect"]>(),
       refreshValue: vi.fn<ConnectionService["refreshValue"]>(),

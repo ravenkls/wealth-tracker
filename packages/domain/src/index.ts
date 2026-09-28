@@ -33,6 +33,7 @@ export type {
   Snapshot,
   HistoryProgress,
   Connection,
+  ConnectionDisplayMode,
   PublicConnection,
   BankBalance,
   BankConnection,

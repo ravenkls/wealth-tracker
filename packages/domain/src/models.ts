@@ -92,7 +92,9 @@ export interface HistoryProgress {
   retryAt: string | null;
   error: string | null;
 }
+export type ConnectionDisplayMode = "account" | "holdings";
 export interface Connection {
+  displayMode?: ConnectionDisplayMode;
   id: string;
   name: string;
   accountType: "invest" | "isa";

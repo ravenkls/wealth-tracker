@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { month, pence, payFrequencies, manualAccountKinds } from "@wealth/domain";
+import {
+  month,
+  pence,
+  payFrequencies,
+  manualAccountKinds,
+  validateForecastAssumptions,
+  defaultForecastAssumptions,
+} from "@wealth/domain";
 export const amount = z.number().int().safe().transform(pence);
 export const nonnegative = amount.refine((value) => value >= 0, "Amount cannot be negative.");
 export const period = z.string().transform((value, ctx) => {
@@ -35,9 +42,28 @@ const line = z.object({
   frequency: z.enum(["monthly", "annual"]),
   destinationId: identifier.nullable(),
 });
+const forecastAssumptions = z
+  .object({
+    spendingLow: amount,
+    spendingUsual: amount,
+    spendingHigh: amount,
+    annualGrowth: z.number().finite(),
+    annualVolatility: z.number().finite(),
+  })
+  .superRefine((value, context) => {
+    try {
+      validateForecastAssumptions(value);
+    } catch (error) {
+      context.addIssue({
+        code: "custom",
+        message: error instanceof Error ? error.message : "Invalid forecast assumptions.",
+      });
+    }
+  });
 export const budgetInput = z.object({
   expectedVersion,
   plan: z.object({
+    forecastAssumptions: forecastAssumptions.default({ ...defaultForecastAssumptions }),
     emergencyAccountIds: z.array(z.uuid()).max(200).default([]),
     salary: nonnegative,
     payFrequency: z.enum(payFrequencies),

@@ -1,4 +1,9 @@
 import { BudgetCharts } from "./BudgetCharts";
+import {
+  forecastDraft,
+  readForecastDraft,
+  ForecastAssumptionsEditor,
+} from "./ForecastAssumptionsEditor";
 import { BudgetForecastChart } from "./BudgetForecastChart";
 import { ReserveCoverage } from "../reserves/ReserveCoverage";
 import { CategoryCell } from "../../components/table/CategoryCell";
@@ -50,6 +55,9 @@ function Section({ title, children }: { readonly title: string; readonly childre
 }
 export function BudgetPage({ data }: { readonly data: AppData }) {
   const plan = data.budget?.plan;
+  const [forecastSettings, setForecastSettings] = useState(() =>
+    forecastDraft(plan?.forecastAssumptions),
+  );
   const [salary, setSalary] = useState(moneyInput(plan?.salary ?? 0)),
     [frequency, setFrequency] = useState<PayFrequency>(plan?.payFrequency ?? "monthly"),
     [sideIncome, setSideIncome] = useState(moneyInput(plan?.sideIncome ?? 0));
@@ -130,6 +138,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
   }
   function readPlan(): BudgetPlan {
     return {
+      forecastAssumptions: readForecastDraft(forecastSettings),
       emergencyAccountIds,
       salary: positiveMoney(salary, "Take-home pay"),
       payFrequency: frequency,
@@ -164,6 +173,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
     };
   }
   const signature = JSON.stringify({
+    forecastSettings,
     emergencyAccountIds,
     salary,
     frequency,
@@ -310,11 +320,19 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
           Some destinations are archived or disconnected. You can replace them one at a time.
         </Alert>
       )}
-      {chartPlan && (
-        <Box sx={{ mb: 4 }}>
-          <BudgetForecastChart plan={chartPlan} latest={data.snapshots.at(-1) ?? null} />
-        </Box>
-      )}
+      <Box sx={{ mb: 4 }}>
+        <BudgetForecastChart
+          plan={chartPlan}
+          latest={data.snapshots.at(-1) ?? null}
+          assumptions={
+            <ForecastAssumptionsEditor
+              draft={forecastSettings}
+              onChange={setForecastSettings}
+              disabled={status === "error"}
+            />
+          }
+        />
+      </Box>
       <Box
         component="fieldset"
         disabled={status === "error"}

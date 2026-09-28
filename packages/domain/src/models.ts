@@ -21,7 +21,15 @@ export interface BudgetLine {
   frequency: "monthly" | "annual";
   destinationId: string | null;
 }
+export interface ForecastAssumptions {
+  spendingLow: Pence;
+  spendingUsual: Pence;
+  spendingHigh: Pence;
+  annualGrowth: number;
+  annualVolatility: number;
+}
 export interface BudgetPlan {
+  forecastAssumptions?: ForecastAssumptions;
   emergencyAccountIds?: string[];
   salary: Pence;
   payFrequency: PayFrequency;

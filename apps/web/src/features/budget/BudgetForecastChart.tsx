@@ -1,5 +1,14 @@
-import { useState } from "react";
-import { Alert, Box, MenuItem, TextField, Typography } from "@mui/material";
+import { useState, type ReactNode } from "react";
+import {
+  Alert,
+  Box,
+  Button,
+  Collapse,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import {
   forecastBudget,
   formatGbp,
@@ -7,21 +16,31 @@ import {
   type BudgetPlan,
   type Snapshot,
 } from "@wealth/domain";
-import { TimelineChart } from "../../components/charts/TimelineChart";
-import { colors } from "../../components/charts/chartData";
 import { ChartEmpty, ChartFrame } from "../../components/charts/ChartFrame";
+import { ForecastRangeChart, type ForecastMetric } from "./ForecastRangeChart";
+import { useBudgetSimulation } from "./useBudgetSimulation";
 
 export function BudgetForecastChart({
   plan,
   latest,
+  assumptions,
 }: {
-  readonly plan: BudgetPlan;
+  readonly plan: BudgetPlan | null;
   readonly latest: Snapshot | null;
+  readonly assumptions: ReactNode;
 }) {
   const [horizon, setHorizon] = useState(12);
+  const [metric, setMetric] = useState<ForecastMetric>("total");
+  const [expanded, setExpanded] = useState(false);
+  const simulation = useBudgetSimulation(plan, latest, horizon);
   let forecast: ReturnType<typeof forecastBudget>;
   try {
-    forecast = forecastBudget(plan, latest, horizon);
+    forecast = plan
+      ? forecastBudget(plan, latest, horizon)
+      : {
+          status: "unavailable",
+          reason: "Complete the budget and enter valid forecast assumptions to see the projection.",
+        };
   } catch {
     forecast = {
       status: "unavailable",
@@ -29,9 +48,12 @@ export function BudgetForecastChart({
         "The forecast exceeds the supported balance or date range. Reduce the amounts or forecast length.",
     };
   }
-  const end = forecast.status === "complete" ? forecast.points.at(-1)! : null;
+  const end = simulation?.status === "complete" ? simulation.points.at(-1)! : null;
+  const baselineEnd = forecast.status === "complete" ? forecast.points.at(-1)! : null;
   const firstNegative =
-    forecast.status === "complete" ? forecast.points.find((point) => point.cash < 0) : null;
+    simulation?.status === "complete"
+      ? simulation.points.find((point) => point.cash.low < 0)
+      : null;
   return (
     <ChartFrame
       title="Balance forecast (excl. pension)"
@@ -41,24 +63,59 @@ export function BudgetForecastChart({
           : "Based on your current budget"
       }
       action={
-        <TextField
-          select
-          size="small"
-          label="Forecast length"
-          value={horizon}
-          onChange={(event) => setHorizon(Number(event.target.value))}
-          sx={{ minWidth: 155 }}
-        >
-          {[12, 24, 60].map((value) => (
-            <MenuItem key={value} value={value}>
-              {value} months
-            </MenuItem>
-          ))}
-        </TextField>
+        <Stack direction="row" sx={{ gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+          <TextField
+            select
+            size="small"
+            label="Balance"
+            value={metric}
+            onChange={(event) => setMetric(event.target.value as ForecastMetric)}
+            sx={{ minWidth: 135 }}
+          >
+            <MenuItem value="total">Net worth</MenuItem>
+            <MenuItem value="cash">Net cash</MenuItem>
+            <MenuItem value="investments">Investments</MenuItem>
+          </TextField>
+          <TextField
+            select
+            size="small"
+            label="Forecast length"
+            value={horizon}
+            onChange={(event) => setHorizon(Number(event.target.value))}
+            sx={{ minWidth: 140 }}
+          >
+            {[12, 24, 60].map((value) => (
+              <MenuItem key={value} value={value}>
+                {value} months
+              </MenuItem>
+            ))}
+          </TextField>
+          <Button
+            size="small"
+            variant="outlined"
+            aria-expanded={expanded}
+            aria-controls="forecast-assumptions"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            Assumptions
+          </Button>
+        </Stack>
       }
     >
+      <Collapse in={expanded}>
+        <Box
+          id="forecast-assumptions"
+          sx={{ pt: 1, pb: 3, mb: 3, borderBottom: 1, borderColor: "divider" }}
+        >
+          {assumptions}
+        </Box>
+      </Collapse>
       {forecast.status === "unavailable" ? (
         <ChartEmpty>{forecast.reason}</ChartEmpty>
+      ) : simulation?.status === "unavailable" ? (
+        <ChartEmpty>{simulation.reason}</ChartEmpty>
+      ) : !end || !baselineEnd || simulation?.status !== "complete" ? (
+        <ChartEmpty>Calculating simulated balances…</ChartEmpty>
       ) : (
         <>
           <Box
@@ -69,87 +126,72 @@ export function BudgetForecastChart({
             }}
           >
             <Box sx={{ minWidth: 0 }}>
-              <TimelineChart
-                points={forecast.points.map((point, index) => ({
-                  label: point.month,
-                  detail: `${formatMonth(point.month)} (${index ? "projected" : "recorded"})`,
-                  cash: point.cash,
-                  investments: point.investments,
-                  total: point.total,
-                }))}
-                series={[
-                  { key: "cash", name: "Net cash", type: "line", color: colors.cash, dashed: true },
-                  {
-                    key: "investments",
-                    name: "Investments",
-                    type: "line",
-                    color: colors.investments,
-                    dashed: true,
-                  },
-                  {
-                    key: "total",
-                    name: "Net worth",
-                    type: "line",
-                    color: colors.total,
-                    dashed: true,
-                  },
-                ]}
+              <ForecastRangeChart
+                points={simulation.points}
+                baseline={forecast.points}
+                metric={metric}
               />
             </Box>
             <Box
               sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "repeat(2,minmax(0,1fr))", md: "1fr" },
-                alignContent: "center",
-                gap: 2.5,
+                alignSelf: "center",
                 pl: { md: 3 },
                 borderLeft: { md: 1 },
                 borderColor: { md: "divider" },
-                justifyContent: "center",
+                minWidth: 0,
               }}
             >
-              <Typography color="text.secondary" sx={{ fontSize: 13, gridColumn: "1 / -1" }}>
-                Projected {formatMonth(end!.month)}
+              <Typography color="text.secondary" sx={{ fontSize: 13, mb: 2 }}>
+                Projected {formatMonth(end.month)}
               </Typography>
-              {(
-                [
-                  ["Net cash", end!.cash],
-                  ["Investments", end!.investments],
-                  ["Net worth", end!.total],
-                ] as const
-              ).map(([label, value]) => (
-                <Box
-                  key={label}
-                  sx={{
-                    gridColumn: label === "Net worth" ? { xs: "1 / -1", md: "auto" } : "auto",
-                    minWidth: 0,
-                  }}
-                >
-                  <Typography color="text.secondary" sx={{ fontSize: 12 }}>
-                    {label}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: { xs: 20, sm: 24 },
-                      fontWeight: 550,
-                      overflowWrap: "anywhere",
-                      mt: 0.5,
-                    }}
-                  >
-                    {formatGbp(value)}
-                  </Typography>
-                </Box>
-              ))}
+              <Typography color="text.secondary" sx={{ fontSize: 12 }}>
+                Simulation median
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: { xs: 26, sm: 30 },
+                  fontWeight: 550,
+                  overflowWrap: "anywhere",
+                  mt: 0.5,
+                }}
+              >
+                {formatGbp(end[metric].median)}
+              </Typography>
+              <Box sx={{ mt: 2.5 }}>
+                <Typography color="text.secondary" sx={{ fontSize: 12 }}>
+                  Middle 80% of simulations
+                </Typography>
+                <Typography sx={{ fontSize: 16, mt: 0.5, overflowWrap: "anywhere" }}>
+                  {formatGbp(end[metric].low)} – {formatGbp(end[metric].high)}
+                </Typography>
+              </Box>
+              <Box sx={{ mt: 2.5 }}>
+                <Typography color="text.secondary" sx={{ fontSize: 12 }}>
+                  Budget only, no growth
+                </Typography>
+                <Typography sx={{ fontSize: 18, mt: 0.5 }}>
+                  {formatGbp(baselineEnd[metric])}
+                </Typography>
+              </Box>
             </Box>
           </Box>
           {firstNegative && (
             <Alert severity="warning" sx={{ mt: 2 }}>
-              Net cash is below zero in {formatMonth(firstNegative.month)} under this budget.
+              The lower cash estimate is below zero in {formatMonth(firstNegative.month)}.
             </Alert>
           )}
           <Typography color="text.secondary" sx={{ fontSize: 12, mt: 2 }}>
-            Monthly averages, including annual expenses. No growth or interest.
+            {simulation.paths.toLocaleString("en-GB")} simulated paths. The shaded range reflects
+            your assumptions, not guaranteed outcomes. Monthly averages include annual expenses.
           </Typography>
+          {(simulation.brokerageCash > 0 || simulation.hasUnknownCash) && (
+            <Typography color="text.secondary" sx={{ fontSize: 12, mt: 0.5 }}>
+              {simulation.brokerageCash > 0 &&
+                `${formatGbp(simulation.brokerageCash)} of recorded brokerage cash is excluded from market returns. `}
+              {simulation.hasUnknownCash &&
+                "Investment amounts without a recorded cash breakdown are fully exposed to simulated returns."}
+            </Typography>
+          )}
         </>
       )}
     </ChartFrame>

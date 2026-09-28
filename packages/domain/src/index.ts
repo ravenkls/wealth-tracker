@@ -28,6 +28,7 @@ export type {
   TablePreferences,
   BudgetLine,
   BudgetPlan,
+  ForecastAssumptions,
   Position,
   SavedInvestment,
   Snapshot,
@@ -53,3 +54,7 @@ export type { BudgetFlow, BudgetFlowNode } from "./budget-flow";
 export { forecastBudget } from "./budget-forecast";
 export type { ForecastPoint, BudgetForecast } from "./budget-forecast";
 export { emergencyCoverage } from "./emergency-coverage";
+
+export { defaultForecastAssumptions, validateForecastAssumptions } from "./forecast-assumptions";
+export { simulateBudget } from "./budget-simulation";
+export type { BudgetSimulation, SimulationPoint, SimulationRange } from "./budget-simulation";

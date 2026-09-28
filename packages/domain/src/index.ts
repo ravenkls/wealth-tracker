@@ -48,3 +48,8 @@ export { projectSavings } from "./projections";
 export { canonicalCategory, normalizeBudgetCategories } from "./categories";
 
 export { readingAt, savingsConnectionIds } from "./snapshot-reading";
+export { budgetFlow } from "./budget-flow";
+export type { BudgetFlow, BudgetFlowNode } from "./budget-flow";
+export { forecastBudget } from "./budget-forecast";
+export type { ForecastPoint, BudgetForecast } from "./budget-forecast";
+export { emergencyCoverage } from "./emergency-coverage";

@@ -21,6 +21,7 @@ export const accountInput = z.object({
   expectedVersion,
 });
 const line = z.object({
+  essential: z.boolean().default(false),
   category: z
     .string()
     .trim()
@@ -37,6 +38,7 @@ const line = z.object({
 export const budgetInput = z.object({
   expectedVersion,
   plan: z.object({
+    emergencyAccountIds: z.array(z.uuid()).max(200).default([]),
     salary: nonnegative,
     payFrequency: z.enum(payFrequencies),
     sideIncome: nonnegative,

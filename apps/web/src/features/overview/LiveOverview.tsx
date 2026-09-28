@@ -26,6 +26,7 @@ import { PageHeading } from "../../components/PageHeading";
 import { TimelineChart } from "../../components/charts/TimelineChart";
 import { colors, historyPoints } from "../../components/charts/chartData";
 import { OverviewCharts } from "./OverviewCharts";
+import { ReserveCoverage } from "../reserves/ReserveCoverage";
 import { formatSignedGbp } from "../../lib/money";
 const rate = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : `${(value * 100).toFixed(1)}%`;
@@ -349,6 +350,11 @@ export function LiveOverview({
                     </Box>
                   )}
               </Box>
+              {plan && (
+                <Box sx={{ mt: 4 }}>
+                  <ReserveCoverage plan={plan} snapshots={data.snapshots} settingsLink />
+                </Box>
+              )}
             </Box>
             <Box sx={{ borderLeft: { lg: 1 }, borderColor: { lg: "divider" }, pl: { lg: 3.75 } }}>
               <Typography component="h2" sx={{ fontSize: 17, mb: 2 }}>

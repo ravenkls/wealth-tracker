@@ -78,6 +78,13 @@ export class WealthService {
     const activeAccounts = (await this.store.accounts.list(userId)).filter(
       (record) => !record.data.archived,
     );
+    const reserveIds = new Set(
+      activeAccounts.filter((record) => record.data.kind === "cash").map((record) => record.id),
+    );
+    if ((plan.emergencyAccountIds ?? []).some((id) => !reserveIds.has(id)))
+      throw new InputError("Choose active cash accounts for your emergency reserve.");
+    if (new Set(plan.emergencyAccountIds ?? []).size !== (plan.emergencyAccountIds ?? []).length)
+      throw new InputError("Emergency reserve accounts must be unique.");
     const accountIds = new Set(
       activeAccounts.filter((record) => isCashAccount(record.data.kind)).map((record) => record.id),
     );

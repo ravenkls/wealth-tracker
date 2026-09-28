@@ -29,8 +29,8 @@
 ## Verification
 
 - User confirmed real Google login and live Trading 212 account values/holdings load.
-- Full formatting, lint, type-check, 77 unit tests and frontend production-build checks pass.
-- Eleven DynamoDB integration tests pass using their own temporary table: expiry/revocation, OAuth replay, ownership, transaction conflicts, snapshot retries, blocked valuation failures, immutable provider corrections history pagination/rate-limit resumption, working balances/preferences, inline correction transactions and canonical budget-category persistence.
+- Full formatting, lint, type-check, 100 unit tests and frontend production-build checks pass.
+- Twenty DynamoDB integration tests pass using their own temporary table: expiry/revocation, OAuth replay, ownership, transaction conflicts, snapshot retries, blocked valuation failures, immutable provider corrections history pagination/rate-limit resumption, working balances/preferences, inline correction transactions and canonical budget-category persistence.
 - Browser checks used an isolated temporary user for accounts, debts, pensions, budget saving, current recording, historical totals, correction/revisions, conflicting two-tab edits and responsive layout. Logout cleared its cookie and a subsequent private read returned 401. Temporary test records were removed.
 - Table browser checks passed for persisted inline account/history/budget edits, grouping across reload, keyboard row dragging, synced column order, select editors, rapid budget edits, revision inspection and working-balance snapshot prefills. A stale two-tab edit was rejected with its typed value retained. No browser exceptions or mobile page overflow were observed; isolated test records/session were removed.
 - Chart browser checks covered all four pages using existing records read-only; isolated component fixtures covered category blur/Enter/clear behaviour and signed values. Desktop and 390px mobile layouts were reviewed with no page overflow or browser errors. Fixture files were removed.
@@ -53,3 +53,7 @@ Implemented user-supplied confidential OAuth clients, session-bound callbacks, e
 ## Connection controls and holdings display
 
 Automated tracking uses one Connect Account menu and per-row action menus leading to Manage Monzo or Manage Trading 212. Trading 212 management contains valuations, holdings, history refresh/retry and disconnect controls. Its table display is chosen during connection and can be changed later with autosave. Existing connections default to one account row; the holdings view replaces that row with individual holdings, uninvested cash and any reconciliation difference. This preference is stored per connection with version checks. Cash remains investments for calculations, and snapshots and savings continue using the account once. Monzo connections with no selected balances retain a management row in the table.
+
+## Budget planning visuals
+
+Budget now leads with a 12/24/60-month balance forecast driven by the editable plan, including monthly dynamic allocation, cash deficits and unchanged pension balances. The income-flow Sankey replaces the allocation doughnut and shows category/destination funding, unassigned money and deficits. Existing category, spending and payday charts follow the editor. Essential expense flags and selected reserve accounts autosave with the budget; Budget and Overview show recorded reserve coverage and a target/history chart. No new accounts are selected or expenses classified automatically. See [calculation rules](calculation-rules.md) for the approved assumptions and missing-data behavior.

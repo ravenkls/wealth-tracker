@@ -23,6 +23,7 @@ export interface ChartSeries {
   type: "bar" | "line";
   stack?: string;
   signed?: boolean;
+  dashed?: boolean;
 }
 export function TimelineChart({
   points,
@@ -114,6 +115,7 @@ export function TimelineChart({
                   type="linear"
                   stroke={item.color}
                   strokeWidth={2}
+                  {...(item.dashed ? { strokeDasharray: "5 4" } : {})}
                   dot={{ r: 2, strokeWidth: 0, fill: item.color }}
                   connectNulls
                   isAnimationActive={false}

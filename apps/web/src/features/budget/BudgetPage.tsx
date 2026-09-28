@@ -1,4 +1,6 @@
 import { BudgetCharts } from "./BudgetCharts";
+import { BudgetForecastChart } from "./BudgetForecastChart";
+import { ReserveCoverage } from "../reserves/ReserveCoverage";
 import { CategoryCell } from "../../components/table/CategoryCell";
 import { canonicalCategory, normalizeBudgetCategories, isCashAccount } from "@wealth/domain";
 import { budgetGroupTotal } from "../../components/table/groupTotals";
@@ -7,7 +9,18 @@ import type { ReactNode } from "react";
 import { DataTable } from "../../components/table/DataTable";
 import { EditableCell } from "../../components/table/EditableCell";
 import { AutosaveQueue } from "../../lib/autosave";
-import { Alert, Box, Button, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  Checkbox,
+  MenuItem,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { calculateBudget, formatGbp, month, payFrequencies } from "@wealth/domain";
 import type { BudgetLine, BudgetPlan, PayFrequency } from "@wealth/domain";
 import { MoneyField, moneyInput, readMoney } from "../../components/Fields";
@@ -42,6 +55,9 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
     [sideIncome, setSideIncome] = useState(moneyInput(plan?.sideIncome ?? 0));
   const [expenses, setExpenses] = useState(() => draftLines(plan?.expenses)),
     [allocations, setAllocations] = useState(() => draftLines(plan?.savingsAllocations));
+  const [emergencyAccountIds, setEmergencyAccountIds] = useState<string[]>(
+    plan?.emergencyAccountIds ?? [],
+  );
   const [settings, setSettings] = useState({
     emergencyMonths: plan?.emergencyMonths?.toString() ?? "",
     targetCashShare:
@@ -105,6 +121,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
   }
   function readPlan(): BudgetPlan {
     return {
+      emergencyAccountIds,
       salary: positiveMoney(salary, "Take-home pay"),
       payFrequency: frequency,
       sideIncome: positiveMoney(sideIncome, "Side income"),
@@ -138,6 +155,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
     };
   }
   const signature = JSON.stringify({
+    emergencyAccountIds,
     salary,
     frequency,
     sideIncome,
@@ -279,11 +297,9 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
         </Alert>
       )}
       {chartPlan && (
-        <BudgetCharts
-          plan={chartPlan}
-          latest={data.snapshots.at(-1) ?? null}
-          destinations={destinations}
-        />
+        <Box sx={{ mb: 4 }}>
+          <BudgetForecastChart plan={chartPlan} latest={data.snapshots.at(-1) ?? null} />
+        </Box>
       )}
       <Box
         component="fieldset"
@@ -403,6 +419,42 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
                 Below the emergency target, all surplus goes to cash. Above it, the split adjusts to
                 your latest cash and investment balances.
               </Typography>
+            </Section>
+            <Section title="Emergency reserve">
+              <Autocomplete
+                multiple
+                options={[
+                  ...data.accounts
+                    .filter((account) => !account.archived && account.kind === "cash")
+                    .map((account) => account.id),
+                  ...emergencyAccountIds.filter(
+                    (id) =>
+                      !data.accounts.some(
+                        (account) =>
+                          account.id === id && !account.archived && account.kind === "cash",
+                      ),
+                  ),
+                ]}
+                value={emergencyAccountIds}
+                getOptionLabel={(id) => {
+                  const account = data.accounts.find((item) => item.id === id);
+                  return account
+                    ? account.name +
+                        (account.archived || account.kind !== "cash" ? " (unavailable)" : "")
+                    : "Unavailable account";
+                }}
+                onChange={(_, ids) => setEmergencyAccountIds(ids)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Reserve accounts"
+                    size="small"
+                    helperText="Mark essential costs in Expenses above. This coverage view does not change your cash/investment split."
+                  />
+                )}
+                sx={{ mb: 3 }}
+              />
+              {chartPlan && <ReserveCoverage plan={chartPlan} snapshots={data.snapshots} />}
             </Section>
             <Section title="Savings goals">
               <Box
@@ -547,6 +599,13 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
           </Box>
         </Box>
       </Box>
+      {chartPlan && (
+        <BudgetCharts
+          plan={chartPlan}
+          latest={data.snapshots.at(-1) ?? null}
+          destinations={destinations}
+        />
+      )}
     </Box>
   );
 }
@@ -672,6 +731,24 @@ function LineEditor({
               />
             ),
           },
+          ...(tableId === "expenses"
+            ? [
+                {
+                  id: "essential",
+                  label: "Essential",
+                  groupable: true,
+                  value: (line: DraftLine) => (line.essential ? "Essential" : "Optional"),
+                  render: (line: DraftLine) => (
+                    <Checkbox
+                      size="small"
+                      checked={!!line.essential}
+                      onChange={(_, checked) => update(line.id, { essential: checked })}
+                      slotProps={{ input: { "aria-label": `${line.name} essential` } }}
+                    />
+                  ),
+                },
+              ]
+            : []),
           {
             id: "actions",
             label: "Actions",

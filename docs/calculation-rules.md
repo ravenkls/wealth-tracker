@@ -64,3 +64,15 @@ Recorded year-to-date savings sum complete intervals associated with saved month
 House-deposit progress is **cash above the emergency target plus the chosen fraction of investments**. Its monthly contribution is the normalised total savings rate × the chosen deposit-saving fraction. Both fractions must be entered by the user; no silent 65% default. Arrival uses the same positive-rate/reached rules as cash goals.
 
 These changes intentionally fix the identified projection and trend inconsistencies, as approved. The original spreadsheet formula inventory remains in [PRD section 15](PRD.md#15-budgeting-and-savings--approved-spreadsheet-parity).
+
+## Budget-driven balance forecast
+
+The forecast starts from the latest recorded snapshot and repeats the current budget for 12, 24 or 60 complete monthly steps. Income uses the existing pay-frequency conversion; annual costs use monthly provisions, so this is not a within-month cash-flow calendar. Each step recalculates the existing dynamic split from the previous projected cash/investment balances. Investment growth and interest are zero; pensions remain fixed. Explicit savings stay in cash. Cash increases by income minus expenses minus the rounded investment allocation; this retains rounding leftovers in cash without assigning a recommended transfer. A deficit reduces cash, with no negative investment transfer. Missing split inputs with a positive surplus withhold the forecast rather than invent an allocation. These estimates do not replace the existing history-based goal projections or save forecast snapshots.
+
+## Income flow
+
+The diagram shows the current plan’s monthly funding: income sources, the monthly plan, spending/saving purposes and destination accounts. An income deficit is an explicit funding-shortfall source, not income. Unassigned destinations and unallocated surplus/rounding remain visible. All intermediate nodes conserve the full amount; internal transfers are not extra expenses.
+
+## Emergency reserve coverage
+
+Users select their own active Cash accounts (including automated Monzo accounts/pots) and explicitly mark essential expense lines. Each saved snapshot’s selected cash balances are summed and divided by the current budget’s essential monthly expense total. Annual essentials use monthly provisions. Debt, investments and pensions are excluded. Missing selected account balances make that reading unavailable, including imported monthly totals with no account detail. Negative reserve totals provide zero months of cover; zero essential costs provide no estimate. The history uses today’s selections and essential costs, not historical expense estimates. The existing emergency-month setting provides the coverage target; the coverage view does not change the existing allocation emergency target or dynamic rules. Settings autosave with the budget and use its version checks.

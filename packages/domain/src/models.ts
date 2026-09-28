@@ -13,6 +13,7 @@ export interface ManualAccount {
   version: number;
 }
 export interface BudgetLine {
+  essential?: boolean;
   category?: string | null;
   id: string;
   name: string;
@@ -21,6 +22,7 @@ export interface BudgetLine {
   destinationId: string | null;
 }
 export interface BudgetPlan {
+  emergencyAccountIds?: string[];
   salary: Pence;
   payFrequency: PayFrequency;
   sideIncome: Pence;

@@ -931,3 +931,71 @@ it("persists Trading 212 display choices without changing valuations and rejects
     service.setDisplayMode("display-user", "display", "holdings", latest.version + 1),
   ).rejects.toThrow("Connection not found");
 });
+
+it("persists reserve settings and essential expenses without changing allocation rules, validating account ownership and kinds", async () => {
+  const { WealthService } = await import("../application/wealth-service");
+  const service = new WealthService(store);
+  const { budgetInput } = await import("../application/schemas");
+  const reserveId = randomUUID();
+  await service.saveAccount("reserve-user", {
+    id: reserveId,
+    name: "Reserve",
+    kind: "cash",
+    archived: false,
+    workingBalance: pence(123400),
+    expectedVersion: 0,
+  });
+  const input = budgetInput.parse({
+    expectedVersion: 0,
+    plan: {
+      emergencyAccountIds: [reserveId],
+      salary: 300000,
+      payFrequency: "monthly",
+      sideIncome: 0,
+      expenses: [
+        {
+          id: randomUUID(),
+          name: "Rent",
+          amount: 100000,
+          frequency: "monthly",
+          destinationId: null,
+          essential: true,
+        },
+      ],
+      savingsAllocations: [],
+      emergencyMonths: 3,
+      targetCashShare: 0.2,
+      aggressiveness: 1,
+      cashDestinationId: null,
+      investmentDestinationId: null,
+      cashGoal: null,
+      endOfYearGoal: null,
+      depositGoal: null,
+      depositInvestmentFraction: null,
+      depositSavingsFraction: null,
+      jobStartMonth: null,
+    },
+  });
+  await service.saveBudget("reserve-user", input.plan, 0);
+  const saved = (await service.bootstrap("reserve-user")).budget!;
+  expect(saved.plan.emergencyAccountIds).toEqual([reserveId]);
+  expect(saved.plan.expenses[0]?.essential).toBe(true);
+  await expect(service.saveBudget("other-reserve-user", input.plan, 0)).rejects.toThrow(
+    "active cash accounts",
+  );
+  await expect(service.saveBudget("reserve-user", input.plan, 0)).rejects.toThrow(
+    "changed in another tab",
+  );
+  await service.saveAccount("reserve-user", {
+    id: reserveId,
+    name: "Reserve",
+    kind: "debt",
+    archived: false,
+    expectedVersion: 1,
+  });
+  await expect(service.saveBudget("reserve-user", input.plan, 1)).rejects.toThrow(
+    "active cash accounts",
+  );
+  await service.saveBudget("reserve-user", { ...input.plan, emergencyAccountIds: [] }, 1);
+  expect((await service.bootstrap("reserve-user")).budget?.plan.emergencyAccountIds).toEqual([]);
+});

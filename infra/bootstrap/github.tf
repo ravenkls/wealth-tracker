@@ -54,6 +54,12 @@ resource "aws_iam_role_policy" "github_deploy" {
         ]
       },
       {
+        Sid      = "ConfigureApiLogDelivery"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogDelivery", "logs:PutResourcePolicy", "logs:UpdateLogDelivery", "logs:DeleteLogDelivery", "logs:DescribeResourcePolicies", "logs:GetLogDelivery", "logs:ListLogDeliveries"]
+        Resource = "*"
+      },
+      {
         Sid      = "ReadServiceMetadata"
         Effect   = "Allow"
         Action   = ["logs:DescribeLogGroups", "lambda:GetAccountSettings", "kms:ListAliases"]

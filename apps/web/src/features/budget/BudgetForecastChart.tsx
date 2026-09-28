@@ -34,7 +34,7 @@ export function BudgetForecastChart({
     forecast.status === "complete" ? forecast.points.find((point) => point.cash < 0) : null;
   return (
     <ChartFrame
-      title="Balance forecast"
+      title="Balance forecast (excl. pension)"
       subtitle={
         latest
           ? `From ${formatMonth(latest.month)} using your current budget`
@@ -148,8 +148,7 @@ export function BudgetForecastChart({
             </Alert>
           )}
           <Typography color="text.secondary" sx={{ fontSize: 12, mt: 2 }}>
-            Monthly averages, including annual expenses. No growth or interest; pensions stay at
-            their recorded value.
+            Monthly averages, including annual expenses. No growth or interest.
           </Typography>
         </>
       )}

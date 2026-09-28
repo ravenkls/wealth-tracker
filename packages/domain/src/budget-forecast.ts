@@ -7,7 +7,6 @@ export interface ForecastPoint {
   month: Month;
   cash: Pence;
   investments: Pence;
-  pensions: Pence;
   total: Pence;
 }
 export type BudgetForecast =
@@ -31,8 +30,7 @@ export function forecastBudget(
       month: latest.month,
       cash: latest.cash,
       investments: latest.investmentTotal,
-      pensions: latest.pensions,
-      total: latest.total,
+      total: sumMoney([latest.cash, latest.investmentTotal]),
     },
   ];
   let projected = { ...latest };
@@ -64,8 +62,7 @@ export function forecastBudget(
       month: nextMonth,
       cash: projected.cash,
       investments: projected.investmentTotal,
-      pensions: projected.pensions,
-      total: projected.total,
+      total: sumMoney([projected.cash, projected.investmentTotal]),
     });
   }
   return { status: "complete", points, monthlyChange: pence(initial.income - initial.spending) };

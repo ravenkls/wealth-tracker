@@ -71,8 +71,12 @@ it("recalculates the forecast split when reserves cross the emergency threshold,
     ["2026-11", 400000, 1000000],
     ["2026-12", 468000, 1132000],
   ]);
-  expect(result.points.map((point) => point.total)).toEqual([1500000, 1700000, 1900000, 2100000]);
-  expect(result.points.every((point) => point.pensions === 500000)).toBe(true);
+  expect(result.points.map((point) => point.total)).toEqual([1000000, 1200000, 1400000, 1600000]);
+  expect(
+    forecastBudget(plan(), snapshot({ pensions: pence(0), total: pence(1000000) }), 3),
+  ).toEqual(result);
+  expect(start.pensions).toBe(500000);
+  expect(start.total).toBe(1500000);
   expect(start.cash).toBe(0);
 });
 it("leaves rounding in cash and deducts deficits without making savings an extra expense", () => {
@@ -89,7 +93,7 @@ it("leaves rounding in cash and deducts deficits without making savings an extra
   );
   expect(rounded).toMatchObject({
     status: "complete",
-    points: [{}, { cash: 388099, investments: 787000, total: 1675099 }],
+    points: [{}, { cash: 388099, investments: 787000, total: 1175099 }],
   });
   const deficit = forecastBudget(
     plan({ salary: pence(50000) }),
@@ -98,7 +102,7 @@ it("leaves rounding in cash and deducts deficits without making savings an extra
   );
   expect(deficit).toMatchObject({
     status: "complete",
-    points: [{}, { cash: -10000, investments: 1000000, total: 1490000 }],
+    points: [{}, { cash: -10000, investments: 1000000, total: 990000 }],
   });
 });
 it("normalises annual costs and pay frequency and crosses calendar years", () => {
@@ -122,7 +126,7 @@ it("normalises annual costs and pay frequency and crosses calendar years", () =>
   expect(annual).toMatchObject({
     status: "complete",
     monthlyChange: 190000,
-    points: [{}, { month: "2027-01", total: 1690000 }],
+    points: [{}, { month: "2027-01", total: 1190000 }],
   });
   expect(forecastBudget(plan(), null, 12).status).toBe("unavailable");
   expect(forecastBudget(plan({ targetCashShare: null }), snapshot(), 12).status).toBe(

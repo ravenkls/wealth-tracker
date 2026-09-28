@@ -123,17 +123,23 @@ resource "aws_iam_role_policy" "github_deploy" {
           "iam:UpdateAssumeRolePolicy",
           "iam:UpdateRoleDescription"
         ]
-        Resource = "arn:aws:iam::235607286117:role/wealth-tracker-*"
+        Resource = "arn:aws:iam::235607286117:role/wealth-tracker-production-lambda"
       },
       {
         Sid    = "ManageWealthDns"
         Effect = "Allow"
         Action = [
-          "route53:ChangeResourceRecordSets",
           "route53:GetHostedZone",
           "route53:ListResourceRecordSets"
         ]
         Resource = "arn:aws:route53:::hostedzone/Z02397952QM7A2G800YC0"
+      },
+      {
+        Sid       = "ChangeWealthDns"
+        Effect    = "Allow"
+        Action    = "route53:ChangeResourceRecordSets"
+        Resource  = "arn:aws:route53:::hostedzone/Z02397952QM7A2G800YC0"
+        Condition = { "ForAllValues:StringLike" = { "route53:ChangeResourceRecordSetsNormalizedRecordNames" = ["wealth.kristiansmith.dev", "*.wealth.kristiansmith.dev"] } }
       },
       {
         Sid      = "ReadDnsMetadata"

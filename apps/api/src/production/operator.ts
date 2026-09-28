@@ -82,7 +82,8 @@ async function main() {
   const owner = profiles[0].owner;
   const isOwned = (item: Item) =>
     item.owner === owner ||
-    (item.__edb_e__ === "event" && item.owner?.startsWith(`${owner}/`) === true);
+    (["event", "revision"].includes(item.__edb_e__) &&
+      item.owner?.startsWith(`${owner}/`) === true);
   if (source.some((item) => !kinds.has(item.__edb_e__) || !isOwned(item)))
     throw new Error("Unexpected local records; review before migration");
   const backupDirectory = new URL("../../../../.private/", import.meta.url);
@@ -180,6 +181,9 @@ main().catch((error: unknown) => {
   console.error(
     "Operator command failed; no existing records were overwritten.",
     error instanceof Error ? error.name : "UnknownError",
+    error instanceof Error && error.constructor === Error
+      ? error.message
+      : "Check operator configuration and AWS permissions.",
   );
   process.exitCode = 1;
 });

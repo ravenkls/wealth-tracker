@@ -38,7 +38,7 @@ Terraform state is encrypted/versioned in S3 and locked using DynamoDB. Provider
 The first deployment creates an empty Google secret resource. Seed it using the operator command below before smoke checks can pass. This command uses the existing ignored `.env` and sends only Google client credentials to Secrets Manager; it never prints their values.
 
 ```sh
-AWS_PROFILE=kristian pnpm --filter @wealth/api exec node --env-file=../../.env --import tsx src/production/operator.ts seed-google
+AWS_PROFILE=kristian pnpm --filter @wealth/api ops seed-google
 ```
 
 Register `https://wealth.kristiansmith.dev/auth/google/callback` with that Google client. Keep the localhost redirect for development. Google Cloud's publishing/test-user settings still govern who can authorize that client.
@@ -48,7 +48,7 @@ Register `https://wealth.kristiansmith.dev/auth/google/callback` with that Googl
 Stop editing the local app during the copy. The operator command takes a private local backup, requires exactly one local profile, copies that user's records while preserving keys and revisions, and excludes sessions/OAuth attempts. Trading 212 credentials are decrypted only in memory and re-encrypted with KMS. Existing differing production records are never overwritten. Retries compare existing records, including decrypted credentials, so a partially completed copy can resume safely. The local database is unchanged.
 
 ```sh
-AWS_PROFILE=kristian pnpm --filter @wealth/api exec node --env-file=../../.env --import tsx src/production/operator.ts migrate
+AWS_PROFILE=kristian pnpm --filter @wealth/api ops migrate
 ```
 
 Migration logs report entity counts, never balances or credentials. Backups are under the ignored `.private/` directory with owner-only permissions. After migration, use the production app as the source of truth; local and production databases do not synchronize.

@@ -1,6 +1,6 @@
 import type { DynamoDBDocumentClient, TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
-import { recordEntity } from "./entities";
+import { recordEntity, monzoAttemptEntity } from "./entities";
 import { ConflictError, hasErrorName } from "./errors";
 import type {
   TablePreferences,
@@ -9,6 +9,7 @@ import type {
   Connection,
   ManualAccount,
   Snapshot,
+  BankConnection,
 } from "@wealth/domain";
 
 export interface Stored<T> {
@@ -85,6 +86,8 @@ interface SaveReceipt {
   snapshot: Snapshot;
 }
 export class WealthStore {
+  readonly banks: Records<BankConnection>;
+  readonly monzoAttempts: ReturnType<typeof monzoAttemptEntity>;
   readonly appearance: Records<{ mode: "dark" | "light" }>;
   readonly preferences: Records<TablePreferences>;
   readonly accounts: Records<ManualAccount>;
@@ -98,6 +101,8 @@ export class WealthStore {
     private readonly client: DynamoDBDocumentClient,
     table: string,
   ) {
+    this.banks = new Records("bankConnection", client, table);
+    this.monzoAttempts = monzoAttemptEntity(client, table);
     this.appearance = new Records("appearance", client, table);
     this.preferences = new Records("preferences", client, table);
     this.accounts = new Records("account", client, table);
@@ -107,6 +112,50 @@ export class WealthStore {
     this.revisions = new Records("revision", client, table);
     this.operations = new Records("operation", client, table);
     this.events = new Records("event", client, table);
+  }
+  async saveBankAccounts(
+    owner: string,
+    bank: BankConnection,
+    expectedVersion: number,
+    accounts: { data: ManualAccount; expectedVersion: number }[],
+  ) {
+    if (accounts.length > 90) throw new Error("Too many accounts in one update.");
+    const timestamp = new Date().toISOString();
+    async function put<T extends object>(
+      records: Records<T>,
+      id: string,
+      data: T,
+      version: number,
+    ) {
+      const values = {
+        owner,
+        id,
+        data,
+        version: version + 1,
+        createdAt: (await records.get(owner, id))?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      };
+      const params =
+        version === 0
+          ? records.entity.create(values).params()
+          : records.entity
+              .put(values)
+              .where((a, o) => o.eq(a.version, version))
+              .params();
+      return { Put: params as TransactionPut };
+    }
+    const writes = await Promise.all([
+      put(this.banks, bank.id, bank, expectedVersion),
+      ...accounts.map((account) =>
+        put(this.accounts, account.data.id, account.data, account.expectedVersion),
+      ),
+    ]);
+    try {
+      await this.client.send(new TransactWriteCommand({ TransactItems: writes }));
+    } catch (error) {
+      if (hasErrorName(error, "TransactionCanceledException")) throw new ConflictError();
+      throw error;
+    }
   }
   async receipt(userId: string, operationId: string, digest: string) {
     const record = await this.operations.get(userId, operationId);

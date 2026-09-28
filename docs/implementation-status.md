@@ -45,3 +45,7 @@ The Google OAuth client's publishing/test-user restrictions are controlled in Go
 Group headers default to expanded and show meaningful account/investment/budget sums. Browser fixtures verified negative-balance totals, collapse/expand, regrouping, reordered columns and reload defaults without touching stored user data. Budget aggregation tests cover mixed annual/monthly periods and invalid/missing inputs.
 
 Imported history can be enriched with date-only London readings, declared Trading 212/cash coverage and an explicit monthly income assumption. Savings, spending, income-weighted rates and normalised projections then use real provider movements and interval income, including multi-month gaps. History details allow revision-preserving income corrections. No historical holdings or exact capture times are fabricated.
+
+## Monzo automated cash tracking
+
+Implemented user-supplied confidential OAuth clients, session-bound callbacks, encrypted rotating tokens, account/pot selection, automated cash snapshot readings and missing-pot archiving. Disconnect converts tracked accounts to manual. Existing manual accounts and saved history are preserved. See [Monzo integration](monzo-integration.md) for setup and lifecycle details. Real authorization and product-coverage verification are pending user connection.

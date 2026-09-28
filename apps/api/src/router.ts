@@ -1,3 +1,5 @@
+import type { MonzoService } from "./application/monzo-service";
+import { MonzoError } from "./integrations/monzo";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { Profile } from "./storage/entities";
@@ -21,10 +23,12 @@ import {
   period,
 } from "./application/schemas";
 export interface ApiContext {
+  readonly sessionHash?: string;
   readonly user: { userId: string; profile: Profile } | null;
   readonly trustedOrigin: boolean;
 }
 export interface ApiDependencies {
+  readonly monzo?: Pick<MonzoService, "start" | "refresh" | "select" | "disconnect">;
   readonly isDatabaseReady: () => Promise<boolean>;
   readonly wealth: Pick<
     WealthService,
@@ -63,6 +67,11 @@ async function run<T>(work: () => Promise<T>): Promise<T> {
       throw new TRPCError({ code: "CONFLICT", message: error.message });
     if (error instanceof InputError)
       throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+    if (error instanceof MonzoError)
+      throw new TRPCError({
+        code: error.kind === "rate-limit" ? "TOO_MANY_REQUESTS" : "BAD_GATEWAY",
+        message: error.message,
+      });
     if (error instanceof Trading212Error)
       throw new TRPCError({
         code: error.retryAfterSeconds ? "TOO_MANY_REQUESTS" : "BAD_GATEWAY",
@@ -75,6 +84,10 @@ async function run<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 export function createRouter(d: ApiDependencies) {
+  const monzo = () => {
+    if (!d.monzo) throw new InputError("Monzo tracking is unavailable.");
+    return d.monzo;
+  };
   return router({
     health: publicProcedure.query(async () => ({
       api: "ready" as const,
@@ -140,6 +153,36 @@ export function createRouter(d: ApiDependencies) {
       revisions: protectedProcedure
         .input(z.object({ month: period }))
         .query(({ ctx, input }) => run(() => d.wealth.revisions(ctx.user.userId, input.month))),
+    }),
+    monzo: router({
+      start: protectedProcedure
+        .input(
+          z.object({
+            clientId: z.string().trim().min(1).max(512),
+            clientSecret: z.string().trim().min(1).max(512),
+            connectionId: identifier.optional(),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          run(() => monzo().start(ctx.user.userId, ctx.sessionHash ?? "", input)),
+        ),
+      refresh: protectedProcedure
+        .input(z.object({ id: identifier }))
+        .mutation(({ ctx, input }) => run(() => monzo().refresh(ctx.user.userId, input.id))),
+      select: protectedProcedure
+        .input(
+          z.object({ id: identifier, externalIds: z.array(identifier).max(80), expectedVersion }),
+        )
+        .mutation(({ ctx, input }) =>
+          run(() =>
+            monzo().select(ctx.user.userId, input.id, input.externalIds, input.expectedVersion),
+          ),
+        ),
+      disconnect: protectedProcedure
+        .input(z.object({ id: identifier, expectedVersion }))
+        .mutation(({ ctx, input }) =>
+          run(() => monzo().disconnect(ctx.user.userId, input.id, input.expectedVersion)),
+        ),
     }),
     connections: router({
       connect: protectedProcedure

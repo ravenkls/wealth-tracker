@@ -44,14 +44,16 @@ export function SnapshotDialog({
   );
   const rows =
     mode === "correction"
-      ? initial!.balances.map((balance) => ({
-          id: balance.accountId,
-          name: balance.name,
-          kind: balance.kind,
-          archived:
-            data.accounts.find((account) => account.id === balance.accountId)?.archived ?? false,
-        }))
-      : data.accounts.filter((account) => !account.archived);
+      ? initial!.balances
+          .filter((balance) => !balance.automation)
+          .map((balance) => ({
+            id: balance.accountId,
+            name: balance.name,
+            kind: balance.kind,
+            archived:
+              data.accounts.find((account) => account.id === balance.accountId)?.archived ?? false,
+          }))
+      : data.accounts.filter((account) => !account.archived && !account.automation);
   const priorBalance = (id: string) =>
     [...data.snapshots]
       .reverse()
@@ -120,6 +122,9 @@ export function SnapshotDialog({
       return mode === "correction"
         ? api.snapshots.correct.mutate(input)
         : api.snapshots.record.mutate(input);
+    },
+    onError: () => {
+      void refresh();
     },
     onSuccess: async () => {
       if (mode === "current")
@@ -222,11 +227,13 @@ export function SnapshotDialog({
                   previousBalance={priorBalance}
                   disabled={save.isPending}
                 />
-                {mode === "current" && data.connections.length > 0 && (
-                  <Typography color="text.secondary" sx={{ fontSize: 13 }}>
-                    Trading 212 values will be fetched when you record.
-                  </Typography>
-                )}
+                {mode === "current" &&
+                  (data.connections.length > 0 ||
+                    data.accounts.some((account) => account.automation && !account.archived)) && (
+                    <Typography color="text.secondary" sx={{ fontSize: 13 }}>
+                      Connected account balances will be fetched when you record.
+                    </Typography>
+                  )}
                 {mode === "correction" && initial && initial.investments.length > 0 && (
                   <Typography color="text.secondary" sx={{ fontSize: 13 }}>
                     Recorded automated investments:{" "}

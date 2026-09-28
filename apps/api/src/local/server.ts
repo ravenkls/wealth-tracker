@@ -1,3 +1,6 @@
+import { MonzoService } from "../application/monzo-service";
+import { MonzoClient } from "../integrations/monzo";
+import { hash } from "../auth/tokens";
 import { WealthStore } from "../storage/records";
 import { WealthService } from "../application/wealth-service";
 import { SnapshotService } from "../application/snapshot-service";
@@ -33,16 +36,19 @@ const auth = new AuthService(
     `${config.appOrigin}/auth/google/callback`,
   ),
 );
-const handleAuth = createAuthHandler(auth, config.appOrigin);
+
 if (!config.encryptionKey)
   throw new Error("Set LOCAL_ENCRYPTION_KEY in .env before storing connections.");
 const wealthStore = new WealthStore(documents, config.tableName);
 const cipher = new LocalCredentialCipher(config.encryptionKey);
 const provider = new Trading212Client();
+const monzo = new MonzoService(wealthStore, new MonzoClient(), cipher, config.appOrigin);
+const handleAuth = createAuthHandler(auth, config.appOrigin, monzo);
 const appRouter = createRouter({
+  monzo,
   wealth: new WealthService(wealthStore),
   connections: new ConnectionService(wealthStore, provider, cipher),
-  snapshots: new SnapshotService(wealthStore, provider, cipher),
+  snapshots: new SnapshotService(wealthStore, provider, cipher, undefined, monzo),
   isDatabaseReady: () => isTableReady(database, config.tableName),
 });
 const handleApi = createHTTPHandler({
@@ -65,6 +71,7 @@ const handleApi = createHTTPHandler({
     else if (cookies[sessionCookie]) setCookie(res, sessionCookie, "", 0, false);
     return {
       user: authenticated ? { userId: authenticated.userId, profile: authenticated.profile } : null,
+      sessionHash: hash(cookies[sessionCookie] ?? ""),
       trustedOrigin: req.headers.origin === config.appOrigin,
     };
   },

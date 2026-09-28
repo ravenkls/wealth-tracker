@@ -1,3 +1,6 @@
+import { MonzoService } from "../application/monzo-service";
+import { MonzoClient } from "../integrations/monzo";
+import { hash } from "../auth/tokens";
 import { DynamoDBClient, DescribeTableCommand } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { KMSClient } from "@aws-sdk/client-kms";
@@ -51,10 +54,12 @@ async function initialize() {
   const store = new WealthStore(documents, config.DYNAMODB_TABLE);
   const provider = new Trading212Client();
   const cipher = new KmsCredentialCipher(new KMSClient({}), config.CREDENTIAL_KEY_ARN);
+  const monzo = new MonzoService(store, new MonzoClient(), cipher, config.APP_ORIGIN);
   const router = createRouter({
+    monzo,
     wealth: new WealthService(store),
     connections: new ConnectionService(store, provider, cipher),
-    snapshots: new SnapshotService(store, provider, cipher),
+    snapshots: new SnapshotService(store, provider, cipher, undefined, monzo),
     isDatabaseReady: async () => {
       try {
         return (
@@ -66,7 +71,12 @@ async function initialize() {
       }
     },
   });
-  return { config, auth, router, handleAuth: createAuthRequestHandler(auth, config.APP_ORIGIN) };
+  return {
+    config,
+    auth,
+    router,
+    handleAuth: createAuthRequestHandler(auth, config.APP_ORIGIN, monzo),
+  };
 }
 let runtime: ReturnType<typeof initialize> | undefined;
 export async function handler(event: APIGatewayProxyEventV2) {
@@ -106,6 +116,7 @@ export async function handler(event: APIGatewayProxyEventV2) {
             user: authenticated
               ? { userId: authenticated.userId, profile: authenticated.profile }
               : null,
+            sessionHash: hash(token ?? ""),
             trustedOrigin: request.headers.get("origin") === config.APP_ORIGIN,
           };
         },

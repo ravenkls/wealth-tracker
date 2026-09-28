@@ -1,6 +1,7 @@
+import type { MonzoService } from "./monzo-service";
 import type { InlineCorrectionInput } from "./schemas";
 import { calculateNetWorth, calculateRecordedNetWorth, month } from "@wealth/domain";
-import type { Snapshot, SavedInvestment } from "@wealth/domain";
+import type { Snapshot } from "@wealth/domain";
 import type { WealthStore } from "../storage/records";
 import type { InvestmentProvider, TradingCredentials } from "../integrations/trading212";
 import type { CredentialCipher } from "../auth/encryption";
@@ -42,6 +43,7 @@ export class SnapshotService {
     private readonly provider: InvestmentProvider,
     private readonly cipher: CredentialCipher,
     private readonly now: () => Date = () => new Date(),
+    private readonly banks?: Pick<MonzoService, "snapshotBalances">,
   ) {}
   private async existing(
     userId: string,
@@ -84,12 +86,13 @@ export class SnapshotService {
     const accounts = (await this.store.accounts.list(userId))
       .map((record) => record.data)
       .filter((account) => !account.archived);
+    const manualAccounts = accounts.filter((account) => !account.automation);
     if (
       new Set(input.balances.map((row) => row.accountId)).size !== input.balances.length ||
-      input.balances.length !== accounts.length
+      input.balances.length !== manualAccounts.length
     )
       throw new InputError("Account list changed. Reload before recording.");
-    const balances = accounts.map((account) => {
+    const balances: Snapshot["balances"] = manualAccounts.map((account) => {
       const row = input.balances.find((balance) => balance.accountId === account.id);
       if (!row) throw new InputError("Enter a balance for every active account.");
       return {
@@ -99,28 +102,37 @@ export class SnapshotService {
         balance: row.balance,
       };
     });
+    if (accounts.some((account) => account.automation) && !this.banks)
+      throw new InputError("Monzo tracking is unavailable.");
     const connections = (await this.store.connections.list(userId))
       .map((record) => record.data)
       .filter((connection) => !connection.disconnected);
-    const investments: SavedInvestment[] = await Promise.all(
-      connections.map(async (connection) => {
-        const credentials = JSON.parse(
-          await this.cipher.decrypt(connection.encryptedCredentials!, `${userId}/${connection.id}`),
-        ) as TradingCredentials;
-        const value = await this.provider.value(credentials);
-        if (value.providerId !== connection.id)
-          throw new InputError(
-            "Trading 212 account identity changed. Reconnect it before recording.",
-          );
-        return {
-          connectionId: connection.id,
-          name: connection.name,
-          accountType: connection.accountType,
-          ...value,
-          positions: [...value.positions],
-        };
-      }),
-    );
+    const [automaticBalances, investments] = await Promise.all([
+      this.banks ? this.banks.snapshotBalances(userId, accounts) : Promise.resolve([]),
+      Promise.all(
+        connections.map(async (connection) => {
+          const credentials = JSON.parse(
+            await this.cipher.decrypt(
+              connection.encryptedCredentials!,
+              `${userId}/${connection.id}`,
+            ),
+          ) as TradingCredentials;
+          const value = await this.provider.value(credentials);
+          if (value.providerId !== connection.id)
+            throw new InputError(
+              "Trading 212 account identity changed. Reconnect it before recording.",
+            );
+          return {
+            connectionId: connection.id,
+            name: connection.name,
+            accountType: connection.accountType,
+            ...value,
+            positions: [...value.positions],
+          };
+        }),
+      ),
+    ]);
+    balances.push(...automaticBalances);
     const captured = this.now();
     if (input.month !== currentMonth(captured))
       throw new InputError(
@@ -189,7 +201,7 @@ export class SnapshotService {
     const change = input.change;
     if (change.field === "balance") {
       const balance = snapshot.balances.find((row) => row.accountId === change.accountId);
-      if (snapshot.source !== "current" || !balance)
+      if (snapshot.source !== "current" || !balance || balance.automation)
         throw new InputError("Choose a recorded manual account.");
       balance.balance = change.value;
     } else if (
@@ -244,11 +256,12 @@ export class SnapshotService {
     if (!existing || existing.source !== "current")
       throw new InputError("Use historical totals to edit this record.");
     if (
-      input.balances.length !== existing.balances.length ||
+      input.balances.length !== existing.balances.filter((row) => !row.automation).length ||
       new Set(input.balances.map((row) => row.accountId)).size !== input.balances.length
     )
       throw new InputError("Correction must include the recorded accounts.");
     const balances = existing.balances.map((row) => {
+      if (row.automation) return row;
       const updated = input.balances.find((item) => item.accountId === row.accountId);
       if (!updated) throw new InputError("Correction must include the recorded accounts.");
       return { ...row, balance: updated.balance };

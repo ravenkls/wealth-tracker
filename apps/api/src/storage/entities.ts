@@ -74,3 +74,26 @@ export function authEntities(client: DynamoDBDocumentClient, table: string) {
   );
   return { sessions, attempts, profiles: recordEntity<Profile>("profile", client, table) };
 }
+
+export function monzoAttemptEntity(client: DynamoDBDocumentClient, table: string) {
+  return new Entity(
+    {
+      model: { entity: "monzoOAuth", service: "wealth", version: "1" },
+      attributes: {
+        stateHash: { type: "string", required: true },
+        userId: { type: "string", required: true },
+        sessionHash: { type: "string", required: true },
+        encryptedCredentials: { type: "string", required: true },
+        connectionId: { type: "string" },
+        expiresAt: { type: "number", required: true },
+      },
+      indexes: {
+        primary: {
+          pk: { field: "pk", composite: ["stateHash"] },
+          sk: { field: "sk", composite: [] },
+        },
+      },
+    },
+    { client, table },
+  );
+}

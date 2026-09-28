@@ -17,6 +17,7 @@ import type {
   Snapshot,
 } from "@wealth/domain";
 import type { WealthStore } from "../storage/records";
+import { publicBankConnection } from "./monzo-service";
 import { publicConnection } from "./connection-service";
 import { InputError, currentMonth } from "./snapshot-service";
 export class WealthService {
@@ -33,6 +34,8 @@ export class WealthService {
     },
   ) {
     const existing = await this.store.accounts.get(userId, input.id);
+    if (existing?.data.automation)
+      throw new InputError("Manage automated accounts through their connection.");
     if (
       existing &&
       existing.data.kind !== input.kind &&
@@ -118,12 +121,13 @@ export class WealthService {
       .sort((a, b) => b.version - a.version);
   }
   async bootstrap(userId: string) {
-    const [accounts, connections, snapshots, budget, preferences] = await Promise.all([
+    const [accounts, connections, snapshots, budget, preferences, banks] = await Promise.all([
       this.store.accounts.list(userId),
       this.store.connections.list(userId),
       this.store.snapshots.list(userId),
       this.store.budgets.get(userId, "current"),
       this.store.preferences.list(userId),
+      this.store.banks.list(userId),
     ]);
     const history = snapshots
       .map((record) => record.data)
@@ -159,6 +163,9 @@ export class WealthService {
     }
     return {
       preferences: preferences.map(({ id, version, data }) => ({ id, version, preferences: data })),
+      bankConnections: banks
+        .filter((record) => !record.data.disconnected)
+        .map((record) => publicBankConnection(record.data)),
       accounts: accounts.map((record) => record.data),
       connections: connections
         .filter((record) => !record.data.disconnected)

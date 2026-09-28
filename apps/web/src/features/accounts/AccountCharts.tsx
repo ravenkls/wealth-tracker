@@ -65,7 +65,7 @@ export function AccountCharts({ data }: { readonly data: AppData }) {
   }
   return (
     <Box sx={chartGrid}>
-      <ChartFrame title="Working balances" subtitle="Manually tracked accounts">
+      <ChartFrame title="Working balances" subtitle="Cash, debts and manually tracked assets">
         <BreakdownChart points={working} empty="Enter account balances to compare them here." />
         {missing > 0 && (
           <Typography color="text.secondary" sx={{ fontSize: 12, mt: 1 }}>

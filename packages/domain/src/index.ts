@@ -34,6 +34,9 @@ export type {
   HistoryProgress,
   Connection,
   PublicConnection,
+  BankBalance,
+  BankConnection,
+  PublicBankConnection,
   CashEvent,
 } from "./models";
 export { calculateBudget, monthlyLine } from "./budget";

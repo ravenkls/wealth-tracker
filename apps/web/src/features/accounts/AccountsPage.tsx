@@ -73,7 +73,9 @@ export function AccountsPage({ data }: { readonly data: AppData }) {
           defaultGrouping={["kind"]}
           label="Manually tracked accounts"
           data={data}
-          rows={data.accounts.filter((account) => showArchived || !account.archived)}
+          rows={data.accounts.filter(
+            (account) => !account.automation && (showArchived || !account.archived),
+          )}
           rowId={(account) => account.id}
           reorder
           disabled={saving.disabled}

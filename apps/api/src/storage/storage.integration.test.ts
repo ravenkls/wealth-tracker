@@ -646,3 +646,206 @@ it("reconciles enriched history through bootstrap and preserves revisions when a
   );
   expect((await wealth.bootstrap(owner)).metrics[1]?.result.status).toBe("unavailable");
 });
+
+async function monzoFixture(owner = randomUUID()) {
+  const { MonzoService } = await import("../application/monzo-service");
+  const { LocalCredentialCipher } = await import("../auth/encryption");
+  const { vi } = await import("vitest");
+  let time = new Date("2026-09-28T12:00:00Z");
+  const cipher = new LocalCredentialCipher(Buffer.alloc(32, 3).toString("base64"));
+  const provider = {
+    authorizeUrl: (_client: string, _redirect: string, state: string) =>
+      `https://auth.monzo.com/?state=${state}`,
+    exchange: vi.fn(async () => ({
+      accessToken: "access",
+      refreshToken: "refresh",
+      expiresAt: "2026-09-28T18:00:00Z",
+      userId: "monzo-user",
+    })),
+    refresh: vi.fn(async () => ({
+      accessToken: "rotated-access",
+      refreshToken: "rotated-refresh",
+      expiresAt: "2026-09-29T00:00:00Z",
+      userId: "monzo-user",
+    })),
+    value: vi.fn(async () => ({
+      balances: [
+        {
+          id: "acc",
+          parentAccountId: "acc",
+          name: "Personal",
+          type: "account" as const,
+          balance: pence(69334),
+        },
+        {
+          id: "pot",
+          parentAccountId: "acc",
+          name: "Savings",
+          type: "pot" as const,
+          balance: pence(20000),
+        },
+      ],
+      fetchedAt: time.toISOString(),
+    })),
+    revoke: vi.fn(async () => {}),
+  };
+  const service = new MonzoService(store, provider, cipher, "https://wealth.example", () => time);
+  const start = await service.start(owner, "session", {
+    clientId: "client",
+    clientSecret: "secret",
+  });
+  const state = new URL(start.url).searchParams.get("state")!;
+  return {
+    owner,
+    cipher,
+    provider,
+    service,
+    state,
+    setTime: (value: string) => {
+      time = new Date(value);
+    },
+  };
+}
+it("binds Monzo OAuth to user, session, expiry and one-use state; encrypts secrets", async () => {
+  const f = await monzoFixture();
+  await expect(f.service.complete("other-user", "session", f.state, "code")).rejects.toThrow(
+    "expired",
+  );
+  await expect(f.service.complete(f.owner, "other-session", f.state, "code")).rejects.toThrow(
+    "expired",
+  );
+  expect(f.provider.exchange).not.toHaveBeenCalled();
+  const id = await f.service.complete(f.owner, "session", f.state, "code");
+  await expect(f.service.complete(f.owner, "session", f.state, "code")).rejects.toThrow("expired");
+  const record = await store.banks.get(f.owner, id);
+  expect(record?.data.encryptedCredentials).not.toContain("secret");
+  expect(await store.banks.get("other-user", id)).toBeNull();
+  const expired = await monzoFixture();
+  expired.setTime("2026-09-28T12:11:00Z");
+  await expect(
+    expired.service.complete(expired.owner, "session", expired.state, "code"),
+  ).rejects.toThrow("expired");
+});
+it("selects individual Monzo balances as new accounts without exposing secrets, then converts on disconnect", async () => {
+  const f = await monzoFixture();
+  const id = await f.service.complete(f.owner, "session", f.state, "code");
+  const bank = await f.service.refresh(f.owner, id);
+  expect(JSON.stringify(bank)).not.toMatch(
+    /encryptedCredentials|accessToken|refreshToken|clientSecret/,
+  );
+  await f.service.select(f.owner, id, ["pot"], bank.version);
+  let accounts = await store.accounts.list(f.owner);
+  expect(accounts).toHaveLength(1);
+  expect(accounts[0]?.data).toMatchObject({
+    kind: "cash",
+    workingBalance: 20000,
+    automation: { provider: "monzo", externalId: "pot" },
+  });
+  const selected = (await store.banks.get(f.owner, id))!;
+  await expect(f.service.select(f.owner, id, ["acc"], bank.version)).rejects.toThrow(
+    "changed in another tab",
+  );
+  expect(await store.accounts.list(f.owner)).toHaveLength(1);
+  await f.service.disconnect(f.owner, id, selected.version);
+  accounts = await store.accounts.list(f.owner);
+  expect(accounts[0]?.id).toBe(accounts[0]?.data.id);
+  expect(accounts[0]?.data.automation).toBeUndefined();
+  expect(accounts[0]?.data.workingBalance).toBe(20000);
+  expect((await store.banks.get(f.owner, id))?.data.encryptedCredentials).toBeNull();
+  expect(f.provider.revoke).toHaveBeenCalledWith("access");
+});
+it("serializes Monzo refreshes across requests and persists rotated tokens", async () => {
+  const f = await monzoFixture();
+  const id = await f.service.complete(f.owner, "session", f.state, "code");
+  f.setTime("2026-09-28T18:00:00Z");
+  const results = await Promise.allSettled([
+    f.service.refresh(f.owner, id),
+    f.service.refresh(f.owner, id),
+  ]);
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(f.provider.refresh).toHaveBeenCalledTimes(1);
+  expect(f.provider.value).toHaveBeenCalledWith("rotated-access");
+  await f.service.refresh(f.owner, id);
+  expect(f.provider.refresh).toHaveBeenCalledTimes(1);
+});
+it("requires reconnection after an ambiguous one-use refresh failure instead of replaying it", async () => {
+  const f = await monzoFixture();
+  const id = await f.service.complete(f.owner, "session", f.state, "code");
+  f.setTime("2026-09-28T18:00:00Z");
+  f.provider.refresh.mockRejectedValue(new Error("network interrupted"));
+  await expect(f.service.refresh(f.owner, id)).rejects.toThrow("network interrupted");
+  expect((await store.banks.get(f.owner, id))?.data.status).toBe("reconnect");
+  await expect(f.service.refresh(f.owner, id)).rejects.toThrow("Reconnect");
+  expect(f.provider.refresh).toHaveBeenCalledTimes(1);
+});
+it("archives missing pots only after a successful complete refresh", async () => {
+  const f = await monzoFixture();
+  const id = await f.service.complete(f.owner, "session", f.state, "code");
+  const bank = await f.service.refresh(f.owner, id);
+  await f.service.select(f.owner, id, ["pot"], bank.version);
+  f.provider.value.mockRejectedValueOnce(new Error("API unavailable"));
+  await expect(f.service.refresh(f.owner, id)).rejects.toThrow("API unavailable");
+  expect((await store.accounts.list(f.owner))[0]?.data.archived).toBe(false);
+  f.provider.value.mockResolvedValue({ balances: [], fetchedAt: "2026-09-28T12:00:00Z" });
+  await f.service.refresh(f.owner, id);
+  expect((await store.accounts.list(f.owner))[0]?.data).toMatchObject({
+    archived: true,
+    workingBalance: 20000,
+  });
+});
+it("records live Monzo cash, blocks failures, and prevents edits to recorded automated balances", async () => {
+  const f = await monzoFixture();
+  const id = await f.service.complete(f.owner, "session", f.state, "code");
+  const bank = await f.service.refresh(f.owner, id);
+  await f.service.select(f.owner, id, ["acc", "pot"], bank.version);
+  const { SnapshotService } = await import("../application/snapshot-service");
+  const provider: import("../integrations/trading212").InvestmentProvider = {
+    value: async () => {
+      throw new Error("Unused");
+    },
+    transactions: async () => ({ events: [], nextPage: null }),
+    dividends: async () => ({ events: [], nextPage: null }),
+  };
+  const snapshots = new SnapshotService(
+    store,
+    provider,
+    f.cipher,
+    () => new Date("2026-09-28T12:00:00Z"),
+    f.service,
+  );
+  const input = {
+    month: month("2026-09"),
+    expectedVersion: 0,
+    operationId: randomUUID(),
+    replaceConfirmed: false,
+    notes: "",
+    balances: [],
+    periodIncome: pence(100000),
+    cashPensionContributions: pence(0),
+  };
+  f.provider.value.mockRejectedValueOnce(new Error("Unavailable"));
+  await expect(snapshots.record(f.owner, input)).rejects.toThrow("Unavailable");
+  expect(await store.snapshots.list(f.owner)).toHaveLength(0);
+  const saved = await snapshots.record(f.owner, input);
+  expect(saved.cash).toBe(89334);
+  expect(saved.total).toBe(89334);
+  expect(saved.investmentTotal).toBe(0);
+  expect(saved.balances.every((balance) => balance.automation?.provider === "monzo")).toBe(true);
+  await expect(
+    snapshots.inlineCorrect(f.owner, {
+      month: input.month,
+      expectedVersion: 1,
+      operationId: randomUUID(),
+      change: { field: "balance", accountId: saved.balances[0]!.accountId, value: pence(0) },
+    }),
+  ).rejects.toThrow("manual account");
+  const corrected = await snapshots.correct(f.owner, {
+    ...input,
+    expectedVersion: 1,
+    operationId: randomUUID(),
+    replaceConfirmed: true,
+    notes: "Correction",
+  });
+  expect(corrected.balances).toEqual(saved.balances);
+  expect(corrected.total).toBe(saved.total);
+});

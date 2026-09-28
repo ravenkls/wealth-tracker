@@ -1,7 +1,13 @@
+import type { MonzoService } from "../application/monzo-service";
+import { hash } from "../auth/tokens";
 import type { AuthService } from "../auth/service";
 import { attemptCookie, readCookies, sessionCookie, formatCookie } from "./cookies";
 
-export function createAuthRequestHandler(auth: AuthService, origin: string) {
+export function createAuthRequestHandler(
+  auth: AuthService,
+  origin: string,
+  monzo?: Pick<MonzoService, "complete">,
+) {
   const secure = new URL(origin).protocol === "https:";
   return async (request: Request): Promise<Response | null> => {
     const url = new URL(request.url);
@@ -15,6 +21,16 @@ export function createAuthRequestHandler(auth: AuthService, origin: string) {
       return new Response(null, { status, headers });
     };
     try {
+      if (request.method === "GET" && url.pathname === "/auth/monzo/callback" && monzo) {
+        const sessionToken = cookies[sessionCookie];
+        const user = await auth.authenticate(sessionToken, false);
+        const code = url.searchParams.get("code"),
+          state = url.searchParams.get("state");
+        if (!user || !sessionToken || !code || !state || state.length > 200 || code.length > 2000)
+          throw new Error("Incomplete Monzo callback");
+        const id = await monzo.complete(user.userId, hash(sessionToken), state, code);
+        return respond(302, `/accounts?monzo=${encodeURIComponent(id)}`);
+      }
       if (request.method === "GET" && url.pathname === "/auth/google") {
         const result = await auth.start();
         cookie(attemptCookie, result.binding, 600);
@@ -39,6 +55,8 @@ export function createAuthRequestHandler(auth: AuthService, origin: string) {
       }
       return respond(404);
     } catch {
+      if (url.pathname === "/auth/monzo/callback")
+        return respond(302, "/accounts?monzoError=connection-failed");
       return url.pathname === "/auth/logout"
         ? respond(503)
         : respond(302, "/?authError=sign-in-failed");

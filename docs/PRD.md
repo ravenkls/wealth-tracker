@@ -7,7 +7,7 @@ Date: 28 September 2026
 
 Build a web app for recording and understanding personal net worth, replacing the existing wealth-tracking spreadsheet with a focused application experience.
 
-The core workflow is deliberate: the user updates their balances, fetches their Trading 212 account value, and saves a monthly snapshot. The app presents those snapshots through a dashboard and historical charts. A separate budget page supports monthly planning.
+The core workflow is deliberate: the user updates manual balances, fetches connected Trading 212 and selected Monzo values, and saves a monthly snapshot. The app presents those snapshots through a dashboard and historical charts. A separate budget page supports monthly planning.
 
 This document captures the agreed product scope and technical stack. Optional enhancements and implementation details are distinguished from launch requirements.
 
@@ -35,6 +35,7 @@ The existing spreadsheet is a reference for useful outputs and a potential sourc
 - Manually tracked investment account balances, included in net worth without holdings or cash-movement entry.
 - Manual pension balances, identified separately from accessible wealth.
 - Read-only Trading 212 connections supporting both Invest and Stocks ISA accounts.
+- Monzo automated cash balances using each user’s confidential OAuth client, with individual account/pot selection, encrypted tokens, automatic archiving of missing pots and conversion to manual accounts on disconnect.
 - A guided workflow to record dated net-worth snapshots.
 - A dashboard with historical charts and asset breakdowns.
 - A monthly budget with income, expenses, annual-expense provisions, per-account funding instructions, and the spreadsheet's dynamic cash/investment allocation rules.
@@ -90,7 +91,7 @@ Allow users to add, rename, and archive accounts. An account used in a saved sna
 
 Manual rows can be grouped by type or archive status. Cash and Debt can be reclassified inline without changing balances or prior snapshots; other asset-type changes require a new account. Net cash includes both signed Cash and Debt balances. Manual investments join the investment total and asset filters. Inferred savings/spending are unavailable when either reading in an interval includes a manual investment, because no movement history is collected.
 
-The “Automated tracking accounts” table contains Trading 212 connections with an explicit Provider column and holdings access. Trading 212 remains the only automated integration.
+The “Automated tracking accounts” table contains Trading 212 connections with an explicit Provider column and holdings access. Monzo current accounts and pots are also supported through user-supplied confidential OAuth clients. Users select balances individually; these become new automated cash accounts. Existing manual duplicates are archived by the user. See [Monzo integration](monzo-integration.md) for the approved connection, token, snapshot and lifecycle behavior.
 
 ### Budget
 
@@ -228,7 +229,7 @@ Supply example environment configuration without secrets and document Google sig
 3. Moving £500 from cash to Trading 212 leaves net worth unchanged when both balances reflect the transfer.
 4. Trading 212 cash is included exactly once, irrespective of whether holdings are displayed individually.
 5. One Record snapshot action fetches connected investments and saves a complete snapshot on success, without a post-fetch confirmation or investment transaction entry. An existing month requires replacement confirmation before saving.
-6. A failed fetch for any connected Trading 212 account blocks current snapshot recording. Neither zero, stale values, nor partial account totals can bypass the failure.
+6. A failed fetch for any connected Trading 212 account or selected Monzo connection blocks current snapshot recording. Neither zero, stale values, nor partial account totals can bypass the failure.
 7. Refreshing prices, editing the budget, or renaming an account does not alter saved snapshots.
 8. History and charts display the same saved totals and show one point per saved month, with missing months left missing.
 9. Correcting a snapshot preserves its previous revision and updates the displayed comparisons.
@@ -255,7 +256,7 @@ Supply example environment configuration without secrets and document Google sig
 - **KMS allocation:** One customer-managed encryption key per environment, shared across users; separately encrypted credentials.
 - **Snapshot identity:** One active snapshot per user and `YYYY-MM`; a confirmed save replaces that month and retains the previous revision. This supersedes the earlier timestamp-based, multiple-recordings model. UTC capture timestamps also define the savings interval; they do not determine the snapshot identity.
 - **Budgeting and savings:** Retain account funding plans, annual provisions, emergency targets, the spreadsheet's dynamic allocation rules, savings goals/projections, inferred spending and savings rates. Read necessary Trading 212 history automatically and confirm period income/pension contributions. Full brokerage value remains investments.
-- **Provider failure:** Block current recording if any connected Trading 212 account cannot be fetched; no stale-value override.
+- **Provider failure:** Block current recording if a required Trading 212 or Monzo valuation cannot be fetched; no stale-value override.
 - **Historical data:** Manual entry of past months; no bulk import for the initial release.
 - **Stack:** React, TypeScript, tRPC, Lambda, DynamoDB, ElectroDB, AWS hosting, and Terraform. Provide a local development setup using Docker Compose and DynamoDB Local.
 

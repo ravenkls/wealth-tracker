@@ -200,19 +200,23 @@ function SnapshotDetails({
               <Typography color="text.secondary" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
                 {balance.name}
               </Typography>
-              <EditableCell
-                numeric
-                label={balance.name + " recorded balance"}
-                value={moneyInput(balance.balance)}
-                disabled={disabled}
-                onCommit={(value) =>
-                  onCorrect({
-                    field: "balance",
-                    accountId: balance.accountId,
-                    value: readMoney(value, balance.name),
-                  })
-                }
-              />
+              {balance.automation ? (
+                <Typography>{formatGbp(balance.balance)}</Typography>
+              ) : (
+                <EditableCell
+                  numeric
+                  label={balance.name + " recorded balance"}
+                  value={moneyInput(balance.balance)}
+                  disabled={disabled}
+                  onCommit={(value) =>
+                    onCorrect({
+                      field: "balance",
+                      accountId: balance.accountId,
+                      value: readMoney(value, balance.name),
+                    })
+                  }
+                />
+              )}
             </Stack>
           ))}
           {snapshot.capturedAt && (

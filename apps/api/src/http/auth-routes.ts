@@ -1,9 +1,14 @@
+import type { MonzoService } from "../application/monzo-service";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AuthService } from "../auth/service";
 import { createAuthRequestHandler } from "./auth-request";
 
-export function createAuthHandler(auth: AuthService, origin: string) {
-  const handle = createAuthRequestHandler(auth, origin);
+export function createAuthHandler(
+  auth: AuthService,
+  origin: string,
+  monzo?: Pick<MonzoService, "complete">,
+) {
+  const handle = createAuthRequestHandler(auth, origin, monzo);
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? "/", origin);
     if (!url.pathname.startsWith("/auth/")) return false;

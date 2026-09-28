@@ -39,11 +39,17 @@ savings rate = saved excluding pensions / income, when income > 0
 
 Market growth, pension growth and purchases/sales within a brokerage account are not new savings. Employer/salary-sacrifice contributions need no input. Pension payments from cash are neither spending nor included in the savings-rate numerator. Return-of-capital and capital distributions are not income.
 
-Unknown transaction/distribution types, ambiguous `TRANSFER` events, incomplete history, changed account coverage, absent confirmed inputs, or a missing/invalid capture interval make affected metrics unavailable. Do not infer historical savings from three manually entered monthly totals. Known deposit/withdrawal pairs across connected accounts cancel when combined; an ambiguous provider transfer is not guessed.
+Unknown transaction/distribution types, ambiguous `TRANSFER` events, incomplete history, changed account coverage, absent confirmed inputs, or a missing/invalid capture interval make affected metrics unavailable. Historical totals alone cannot establish savings. Enriched history may supply a date-only reading, a declared set of Trading 212 connections, consistent aggregate cash coverage, interval income and cash-paid pension contributions. Use those inputs with complete provider history; never invent historical holdings or brokerage cash. Date-only readings use the start of the specified date in Europe/London as the interval boundary. Known deposit/withdrawal pairs across connected accounts cancel when combined; an ambiguous provider transfer is not guessed.
 
 If either reading contains a manually tracked Investment account, inferred savings/spending and the interval savings rate are unavailable. No manual contribution or transaction inputs are collected; investment balance changes are not guessed to be contributions or returns. Manual investment balances remain included in net-worth totals, charts, budget allocation and goal progress.
 
 Net worth may save while history is incomplete. History ingestion resumes from stored cursors and retries rate limits; a valuation failure still blocks the entire snapshot. Account-set changes with unknown opening/closing balances make inference unavailable until comparable readings exist.
+
+## Enriched historical readings
+
+Historical imports remain totals with their original balances and immutable prior revisions. Reading dates and account coverage are separate metadata; `capturedAt` remains null because no live valuation was fetched. A user-approved monthly income assumption is multiplied by the number of calendar months between readings, including gaps. The first reading is only a baseline. The assumption is shown in History details and dashboard savings information; editing an interval's income replaces its assumed status with a confirmed value.
+
+Two aggregate readings must declare the same cash coverage and connected investment accounts. Switching from aggregate imports to individual recorded accounts does not silently assert equivalent coverage. Manual-investment restrictions still apply. Ordinary manual historical entries without this metadata remain unavailable for savings. An operator migration adds the approved metadata using conditional saves and new revisions, with a private backup and idempotent receipts.
 
 ## Projections and summaries
 

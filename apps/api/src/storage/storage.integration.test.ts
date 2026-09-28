@@ -521,3 +521,128 @@ it("records all manual asset types, preserves old classifications and recomputes
     accounts[2]!.id,
   );
 });
+
+it("reconciles enriched history through bootstrap and preserves revisions when assumed income is corrected", async () => {
+  const { prepareHistoricalSavings } = await import("../application/historical-savings");
+  const { WealthService } = await import("../application/wealth-service");
+  const { SnapshotService } = await import("../application/snapshot-service");
+  const { LocalCredentialCipher } = await import("../auth/encryption");
+  const owner = "enriched-history-user";
+  const now = new Date("2026-09-28T12:00:00Z");
+  const originals: Snapshot[] = ["2026-07", "2026-09"].map((value, index) => ({
+    month: month(value),
+    version: 1,
+    source: "historical",
+    capturedAt: null,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    balances: [],
+    investments: [],
+    cash: pence(100000 + index * 10000),
+    investmentTotal: pence(100000),
+    pensions: pence(200000),
+    total: pence(400000 + index * 10000),
+    notes: "Imported",
+    periodIncome: null,
+    cashPensionContributions: null,
+  }));
+  for (const snapshot of originals)
+    await store.saveSnapshot(owner, snapshot, 0, randomUUID(), snapshot.month);
+  const enhanced = prepareHistoricalSavings(
+    originals,
+    { connectionIds: ["broker"], cashCoverageId: "same-cash", monthlyIncome: pence(300000) },
+    now,
+  );
+  for (const snapshot of enhanced)
+    await store.saveSnapshot(owner, snapshot, 1, randomUUID(), snapshot.month);
+  const connection: import("@wealth/domain").Connection = {
+    id: "broker",
+    name: "Broker",
+    accountType: "isa",
+    version: 1,
+    encryptedCredentials: null,
+    disconnected: false,
+    valuation: {
+      connectionId: "broker",
+      name: "Broker",
+      accountType: "isa",
+      total: pence(100000),
+      cash: pence(0),
+      fetchedAt: now.toISOString(),
+      positions: [],
+    },
+    history: {
+      transactionsNext: null,
+      dividendsNext: null,
+      transactionsDone: true,
+      dividendsDone: true,
+      startedAt: now.toISOString(),
+      completedAt: now.toISOString(),
+      retryAt: null,
+      error: null,
+    },
+  };
+  await store.connections.save(owner, "broker", connection, 0);
+  await store.events.save(
+    `${owner}/broker`,
+    "deposit",
+    {
+      reference: "deposit",
+      source: "transaction",
+      type: "DEPOSIT",
+      amount: pence(20000),
+      occurredAt: "2026-08-01T12:00:00Z",
+    },
+    0,
+  );
+  const wealth = new WealthService(store);
+  const before = await wealth.bootstrap(owner);
+  expect(before.metrics[1]?.result).toMatchObject({
+    status: "complete",
+    saved: 30000,
+    income: 600000,
+    spending: 570000,
+  });
+  expect(before.projections?.eligibleIntervals).toBe(1);
+  const provider: import("../integrations/trading212").InvestmentProvider = {
+    value: async () => {
+      throw new Error("Do not fetch a historical valuation");
+    },
+    transactions: async () => ({ events: [], nextPage: null }),
+    dividends: async () => ({ events: [], nextPage: null }),
+  };
+  const snapshots = new SnapshotService(
+    store,
+    provider,
+    new LocalCredentialCipher(Buffer.alloc(32, 7).toString("base64")),
+    () => now,
+  );
+  const input = {
+    month: month("2026-09"),
+    expectedVersion: 2,
+    operationId: randomUUID(),
+    change: { field: "periodIncome" as const, value: pence(610000) },
+  };
+  const saved = await snapshots.inlineCorrect(owner, input);
+  expect(saved.historicalSavings?.assumedMonthlyIncome).toBeNull();
+  expect(saved.total).toBe(410000);
+  expect((await wealth.bootstrap(owner)).metrics[1]?.result).toMatchObject({
+    status: "complete",
+    income: 610000,
+  });
+  expect(await snapshots.inlineCorrect(owner, input)).toEqual(saved);
+  expect(
+    (await store.revisions.get(`${owner}/2026-09`, "0000000002"))?.data.historicalSavings
+      ?.assumedMonthlyIncome,
+  ).toBe(300000);
+  await expect(
+    snapshots.inlineCorrect(owner, { ...input, operationId: randomUUID() }),
+  ).rejects.toThrow("changed");
+  await store.connections.save(
+    owner,
+    "broker",
+    { ...connection, version: 2, history: { ...connection.history, completedAt: null } },
+    1,
+  );
+  expect((await wealth.bootstrap(owner)).metrics[1]?.result.status).toBe("unavailable");
+});

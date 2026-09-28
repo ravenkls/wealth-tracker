@@ -60,3 +60,9 @@ Run `pnpm build` before Terraform plan/validate because the Lambda zip hash is p
 If health fails, check `/aws/lambda/wealth-tracker-production` and `/aws/apigateway/wealth-tracker-production` in CloudWatch. Rotate Google credentials by updating the secret then recycling Lambda configuration; warm runtimes cache the secret. KMS rotation retains decryption of existing credentials. Losing or deleting the KMS key prevents decryption, so the key and data table are protected from Terraform destruction.
 
 DynamoDB point-in-time recovery restores into a new table. A restore requires a deliberate cutover of the Lambda table setting and Terraform state, not an in-place overwrite. No scheduled workers or extra cloud services are required for the app's resumable Trading 212 refresh.
+
+## Enrich imported savings history
+
+`AWS_PROFILE=kristian pnpm --filter @wealth/api ops enrich-history /absolute/path/to/private-manifest.json` adds first-of-month reading dates, declared Trading 212 coverage and approved monthly income to previously imported totals. The private manifest contains `userId`, `connectionIds`, a UUID `cashCoverageId`, `monthlyIncome` in pence, and `snapshots` entries with `month`, `expectedVersion` and a UUID `operationId`. Never commit this file. Confirm the dates, coverage, income assumption and absence of pension payments from cash before running.
+
+The command requires complete provider history, checks the entire snapshot set and expected versions, retains a private backup, and creates atomic snapshot/revision/receipt saves. It preserves balance totals and reports how many intervals reconcile. Retrying the same manifest resumes safely; a later user edit is rejected rather than overwritten. It does not update the local database or change the budget salary.

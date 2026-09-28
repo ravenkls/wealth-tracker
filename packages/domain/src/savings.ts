@@ -1,3 +1,4 @@
+import { readingAt, savingsConnectionIds } from "./snapshot-reading";
 import { isCashAccount } from "./account-types";
 import { pence } from "./money";
 import type { CashEvent, Snapshot } from "./models";
@@ -46,11 +47,12 @@ export function inferSavings(
   events: readonly CashEvent[],
   historyComplete: boolean,
 ): SavingsResult {
-  if (!previous?.capturedAt || !current.capturedAt)
+  const previousAt = previous ? readingAt(previous) : null;
+  const currentAt = readingAt(current);
+  if (!previous || !previousAt || !currentAt)
     return {
       status: "unavailable",
-      reason:
-        "Two recorded balance readings are required; manual monthly totals have no capture interval.",
+      reason: "Two dated balance readings with known account coverage are required.",
     };
   if ([...previous.balances, ...current.balances].some((row) => row.kind === "investment"))
     return {
@@ -58,8 +60,8 @@ export function inferSavings(
       reason:
         "Manually tracked investments have no cash-movement history, so savings and spending cannot be inferred for this interval.",
     };
-  const start = Date.parse(previous.capturedAt),
-    end = Date.parse(current.capturedAt);
+  const start = Date.parse(previousAt),
+    end = Date.parse(currentAt);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start)
     return {
       status: "unavailable",
@@ -75,14 +77,8 @@ export function inferSavings(
       status: "unavailable",
       reason: "Trading 212 history for this interval is incomplete.",
     };
-  const previousIds = previous.investments
-    .map((i) => i.connectionId)
-    .sort()
-    .join(",");
-  const currentIds = current.investments
-    .map((i) => i.connectionId)
-    .sort()
-    .join(",");
+  const previousIds = savingsConnectionIds(previous).sort().join(",");
+  const currentIds = savingsConnectionIds(current).sort().join(",");
   if (previousIds !== currentIds)
     return {
       status: "unavailable",
@@ -94,7 +90,14 @@ export function inferSavings(
       .map((row) => row.accountId)
       .sort()
       .join(",");
-  if (cashIds(previous) !== cashIds(current))
+  const historical = previous.source === "historical" || current.source === "historical";
+  const sameCashCoverage = historical
+    ? previous.source === "historical" &&
+      current.source === "historical" &&
+      !!previous.historicalSavings?.cashCoverageId &&
+      previous.historicalSavings.cashCoverageId === current.historicalSavings?.cashCoverageId
+    : cashIds(previous) === cashIds(current);
+  if (!sameCashCoverage)
     return {
       status: "unavailable",
       reason:
@@ -132,8 +135,8 @@ export function inferSavings(
   const totalIncome = pence(current.periodIncome + income);
   return {
     status: "complete",
-    start: previous.capturedAt,
-    end: current.capturedAt,
+    start: previousAt,
+    end: currentAt,
     cashSaved,
     saved,
     income: totalIncome,

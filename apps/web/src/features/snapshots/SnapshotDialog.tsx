@@ -15,7 +15,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { formatGbp, formatMonth, month, sumMoney } from "@wealth/domain";
+import { formatGbp, formatMonth, month, sumMoney, readingAt } from "@wealth/domain";
 import type { Snapshot } from "@wealth/domain";
 import { MoneyField, moneyInput, nullableMoney, readMoney } from "../../components/Fields";
 import { api } from "../../lib/api";
@@ -135,6 +135,7 @@ export function SnapshotDialog({
   const previous = existing
     ? data.snapshots.filter((snapshot) => snapshot.month < existing.month).at(-1)
     : data.snapshots.at(-1);
+  const previousReading = previous ? readingAt(previous) : null;
   const hasManualInvestments =
     rows.some((row) => row.kind === "investment") ||
     previous?.balances.some((row) => row.kind === "investment");
@@ -244,8 +245,8 @@ export function SnapshotDialog({
                       Savings inputs
                     </Typography>
                     <Typography color="text.secondary" sx={{ fontSize: 12, mb: 2 }}>
-                      {previous?.capturedAt
-                        ? `Since ${new Date(previous.capturedAt).toLocaleString("en-GB")}`
+                      {previousReading
+                        ? `Since ${new Date(previousReading).toLocaleDateString("en-GB", { timeZone: "Europe/London" })}`
                         : "Savings metrics need a previous recorded balance reading."}
                     </Typography>
                     <Stack spacing={2.5}>

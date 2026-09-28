@@ -205,9 +205,13 @@ export class SnapshotService {
     } else if (change.field === "notes") {
       snapshot.notes = change.value;
     } else {
-      if (snapshot.source !== "current")
-        throw new InputError("Historical totals have no captured income interval.");
+      if (snapshot.source !== "current" && !snapshot.historicalSavings)
+        throw new InputError(
+          "Add a historical reading date and account coverage before editing interval inputs.",
+        );
       snapshot[change.field] = change.value;
+      if (change.field === "periodIncome" && snapshot.historicalSavings)
+        snapshot.historicalSavings.assumedMonthlyIncome = null;
     }
     const totals =
       snapshot.source === "current"

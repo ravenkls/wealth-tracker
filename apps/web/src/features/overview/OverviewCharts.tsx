@@ -54,6 +54,13 @@ export function OverviewCharts({
               </Typography>
               <Typography color="text.secondary" sx={{ fontSize: 13 }}>
                 Income-weighted savings rate
+                {data.snapshots.some(
+                  (snapshot) =>
+                    snapshot.month.startsWith(data.currentMonth.slice(0, 4)) &&
+                    snapshot.historicalSavings?.assumedMonthlyIncome != null,
+                )
+                  ? " using assumed historical income"
+                  : ""}
               </Typography>
               {yearRate !== null && yearRate !== undefined && (
                 <LinearProgress
@@ -91,7 +98,7 @@ export function OverviewCharts({
         <Box sx={chartGrid}>
           <ChartFrame
             title="Saved between readings"
-            subtitle="Actual capture intervals, shown in the ending snapshot month"
+            subtitle="Reading intervals, shown in the ending snapshot month"
           >
             <TimelineChart
               points={points}
@@ -100,10 +107,7 @@ export function OverviewCharts({
               ]}
             />
           </ChartFrame>
-          <ChartFrame
-            title="Savings rate"
-            subtitle="Savings as a share of income in each capture interval"
-          >
+          <ChartFrame title="Savings rate" subtitle="Savings as a share of income between readings">
             <TimelineChart
               points={points}
               percent

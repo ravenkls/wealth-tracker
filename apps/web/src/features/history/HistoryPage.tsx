@@ -220,7 +220,24 @@ function SnapshotDetails({
               Balances captured {new Date(snapshot.capturedAt).toLocaleString("en-GB")}
             </Typography>
           )}
-          {snapshot.source === "current" &&
+          {snapshot.historicalSavings && (
+            <Typography color="text.secondary" sx={{ fontSize: 12 }}>
+              Balances read on{" "}
+              {new Date(`${snapshot.historicalSavings.readingDate}T12:00:00Z`).toLocaleDateString(
+                "en-GB",
+                { timeZone: "Europe/London" },
+              )}
+              .
+              {snapshot.historicalSavings.assumedMonthlyIncome !== null && (
+                <>
+                  {" "}
+                  Income assumes {formatGbp(snapshot.historicalSavings.assumedMonthlyIncome)} per
+                  month across the interval.
+                </>
+              )}
+            </Typography>
+          )}
+          {(snapshot.source === "current" || snapshot.historicalSavings) &&
             (["periodIncome", "cashPensionContributions"] as const).map((field) => (
               <Stack
                 key={field}
@@ -233,7 +250,9 @@ function SnapshotDetails({
               >
                 <Typography>
                   {field === "periodIncome"
-                    ? "Confirmed interval income"
+                    ? snapshot.historicalSavings?.assumedMonthlyIncome != null
+                      ? "Assumed interval income"
+                      : "Confirmed interval income"
                     : "Pension contributions paid from cash"}
                 </Typography>
                 <EditableCell
@@ -253,8 +272,8 @@ function SnapshotDetails({
                 Savings rate: {metrics.rate === null ? "—" : `${(metrics.rate * 100).toFixed(1)}%`}
               </Typography>
               <Typography color="text.secondary" sx={{ fontSize: 12 }}>
-                {new Date(metrics.start).toLocaleString("en-GB")} –{" "}
-                {new Date(metrics.end).toLocaleString("en-GB")}
+                {new Date(metrics.start).toLocaleDateString("en-GB", { timeZone: "Europe/London" })}{" "}
+                – {new Date(metrics.end).toLocaleDateString("en-GB", { timeZone: "Europe/London" })}
               </Typography>
             </Box>
           ) : (

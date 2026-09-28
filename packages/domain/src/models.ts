@@ -57,6 +57,12 @@ export interface Snapshot {
   version: number;
   source: "current" | "historical";
   capturedAt: string | null;
+  historicalSavings?: {
+    readingDate: string;
+    connectionIds: string[];
+    cashCoverageId: string;
+    assumedMonthlyIncome: Pence | null;
+  };
   createdAt: string;
   updatedAt: string;
   balances: { accountId: string; name: string; kind: ManualAccountKind; balance: Pence }[];

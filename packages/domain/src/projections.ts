@@ -1,3 +1,4 @@
+import { readingAt } from "./snapshot-reading";
 import Decimal from "decimal.js";
 import { pence, sumMoney } from "./money";
 import { month } from "./month";
@@ -24,7 +25,8 @@ export function projectSavings(
   const latest = snapshots.at(-1);
   if (!latest) return null;
   const latestMonth = latest.month;
-  const end = latest.capturedAt ? Date.parse(latest.capturedAt) : null;
+  const latestReading = readingAt(latest);
+  const end = latestReading ? Date.parse(latestReading) : null;
   const complete = metrics.flatMap((entry) =>
     entry.result.status === "complete" ? [{ month: entry.month, ...entry.result }] : [],
   );

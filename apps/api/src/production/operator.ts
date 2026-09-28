@@ -1,3 +1,4 @@
+import { enrichHistory } from "./enrich-history";
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
@@ -52,6 +53,11 @@ async function main() {
     execFileSync("aws", ["sts", "get-caller-identity", "--output", "json"], { encoding: "utf8" }),
   ) as { Account: string };
   if (account.Account !== "235607286117") throw new Error("Unexpected AWS account");
+  if (process.argv[2] === "enrich-history") {
+    if (!process.argv[3]) throw new Error("Supply the private history migration manifest.");
+    await enrichHistory(process.argv[3]);
+    return;
+  }
   if (process.argv[2] === "seed-google") {
     const clientId = process.env.GOOGLE_CLIENT_ID,
       clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -65,7 +71,7 @@ async function main() {
     console.log("Production Google credentials saved.");
     return;
   }
-  if (process.argv[2] !== "migrate") throw new Error("Use seed-google or migrate");
+  if (process.argv[2] !== "migrate") throw new Error("Use seed-google, migrate or enrich-history");
   const key = process.env.LOCAL_ENCRYPTION_KEY;
   if (!key) throw new Error("Missing local encryption key");
   const local = DynamoDBDocumentClient.from(

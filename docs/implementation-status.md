@@ -29,8 +29,8 @@
 ## Verification
 
 - User confirmed real Google login and live Trading 212 account values/holdings load.
-- Full formatting, lint, type-check, 74 unit tests and frontend production-build checks pass.
-- Ten DynamoDB integration tests pass using their own temporary table: expiry/revocation, OAuth replay, ownership, transaction conflicts, snapshot retries, blocked valuation failures, immutable provider corrections history pagination/rate-limit resumption, working balances/preferences, inline correction transactions and canonical budget-category persistence.
+- Full formatting, lint, type-check, 77 unit tests and frontend production-build checks pass.
+- Eleven DynamoDB integration tests pass using their own temporary table: expiry/revocation, OAuth replay, ownership, transaction conflicts, snapshot retries, blocked valuation failures, immutable provider corrections history pagination/rate-limit resumption, working balances/preferences, inline correction transactions and canonical budget-category persistence.
 - Browser checks used an isolated temporary user for accounts, debts, pensions, budget saving, current recording, historical totals, correction/revisions, conflicting two-tab edits and responsive layout. Logout cleared its cookie and a subsequent private read returned 401. Temporary test records were removed.
 - Table browser checks passed for persisted inline account/history/budget edits, grouping across reload, keyboard row dragging, synced column order, select editors, rapid budget edits, revision inspection and working-balance snapshot prefills. A stale two-tab edit was rejected with its typed value retained. No browser exceptions or mobile page overflow were observed; isolated test records/session were removed.
 - Chart browser checks covered all four pages using existing records read-only; isolated component fixtures covered category blur/Enter/clear behaviour and signed values. Desktop and 390px mobile layouts were reviewed with no page overflow or browser errors. Fixture files were removed.
@@ -43,3 +43,5 @@ Terraform and GitHub Actions deploy the app to `wealth.kristiansmith.dev`: priva
 The Google OAuth client's publishing/test-user restrictions are controlled in Google Cloud; application authorization itself accepts any successfully verified Google identity and isolates users' data.
 
 Group headers default to expanded and show meaningful account/investment/budget sums. Browser fixtures verified negative-balance totals, collapse/expand, regrouping, reordered columns and reload defaults without touching stored user data. Budget aggregation tests cover mixed annual/monthly periods and invalid/missing inputs.
+
+Imported history can be enriched with date-only London readings, declared Trading 212/cash coverage and an explicit monthly income assumption. Savings, spending, income-weighted rates and normalised projections then use real provider movements and interval income, including multi-month gaps. History details allow revision-preserving income corrections. No historical holdings or exact capture times are fabricated.

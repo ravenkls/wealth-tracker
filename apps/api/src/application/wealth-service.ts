@@ -1,5 +1,7 @@
 import {
   calculateBudget,
+  readingAt,
+  savingsConnectionIds,
   isCashAccount,
   inferSavings,
   projectSavings,
@@ -137,18 +139,18 @@ export class WealthService {
     for (let index = 0; index < history.length; index++) {
       const snapshot = history[index]!;
       const previous = history[index - 1] ?? null;
-      const complete = snapshot.investments.every((investment) => {
-        const connection = connections.find(
-          (record) => record.id === investment.connectionId,
-        )?.data;
+      const capturedAt = readingAt(snapshot);
+      const connectionIds = savingsConnectionIds(snapshot);
+      const complete = connectionIds.every((connectionId) => {
+        const connection = connections.find((record) => record.id === connectionId)?.data;
         return !!(
-          snapshot.capturedAt &&
+          capturedAt &&
           connection?.history.completedAt &&
-          connection.history.startedAt >= snapshot.capturedAt
+          connection.history.startedAt >= capturedAt
         );
       });
-      const events = snapshot.investments.flatMap(
-        (investment) => eventsByConnection.get(investment.connectionId) ?? [],
+      const events = connectionIds.flatMap(
+        (connectionId) => eventsByConnection.get(connectionId) ?? [],
       );
       metrics.push({
         month: snapshot.month,

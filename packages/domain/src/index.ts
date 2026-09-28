@@ -42,3 +42,5 @@ export type { SavingsMetrics, SavingsResult } from "./savings";
 export { projectSavings } from "./projections";
 
 export { canonicalCategory, normalizeBudgetCategories } from "./categories";
+
+export { readingAt, savingsConnectionIds } from "./snapshot-reading";

@@ -292,11 +292,20 @@ export function LiveOverview({
                 {metric?.status === "complete" ? (
                   <>
                     <Typography color="text.secondary" sx={{ fontSize: 12, mb: 2 }}>
-                      {new Date(metric.start).toLocaleDateString("en-GB")} –{" "}
-                      {new Date(metric.end).toLocaleDateString("en-GB")}
+                      {new Date(metric.start).toLocaleDateString("en-GB", {
+                        timeZone: "Europe/London",
+                      })}{" "}
+                      –{" "}
+                      {new Date(metric.end).toLocaleDateString("en-GB", {
+                        timeZone: "Europe/London",
+                      })}
                     </Typography>
                     <Stat
-                      label="Confirmed income + investment income"
+                      label={
+                        latest.historicalSavings?.assumedMonthlyIncome != null
+                          ? "Assumed income + investment income"
+                          : "Confirmed income + investment income"
+                      }
                       value={formatGbp(metric.income)}
                     />
                     <Stat label="Saved, excluding pensions" value={formatGbp(metric.saved)} />

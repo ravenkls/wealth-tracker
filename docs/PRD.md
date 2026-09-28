@@ -734,3 +734,7 @@ The [chart design review](chart-design-review.md) defines the implemented chart 
 Expenses and planned savings support optional user-defined category labels through a MUI freeSolo autocomplete. Trim labels and match existing names case-insensitively, with blank entries treated as Uncategorised. Persist them through budget autosave and allow grouping by category. No hardcoded categories or category-management page are needed.
 
 Yearly and recent/previous three-interval savings-rate summaries use total eligible savings divided by total eligible income, rather than averaging percentages. Positive-income complete intervals with an available rate are eligible; otherwise show no rate. Year-to-date saved money still sums all complete intervals. Existing pension exclusions and actual-interval inference rules remain in force.
+
+## Historical savings enrichment
+
+Approved historical imports may use first-of-month London reading dates, declared Trading 212 account coverage, consistent aggregate cash coverage and a user-provided monthly income assumption. Missing snapshot months expand the interval income by the calendar-month gap. Pension contributions deducted before take-home pay require no cash-pension input. The first reading is a baseline. Store the reading date and assumption separately from live capture timestamps/valuations, retain previous revisions, and allow interval income corrections. Net-worth totals remain unchanged. See [calculation rules](calculation-rules.md#enriched-historical-readings).

@@ -80,9 +80,12 @@ async function main() {
   if (profiles.length !== 1 || !profiles[0]?.owner)
     throw new Error("Expected exactly one local profile");
   const owner = profiles[0].owner;
-  if (source.some((item) => !kinds.has(item.__edb_e__) || item.owner !== owner))
+  const isOwned = (item: Item) =>
+    item.owner === owner ||
+    (item.__edb_e__ === "event" && item.owner?.startsWith(`${owner}/`) === true);
+  if (source.some((item) => !kinds.has(item.__edb_e__) || !isOwned(item)))
     throw new Error("Unexpected local records; review before migration");
-  const backupDirectory = new URL("../../../../../.private/", import.meta.url);
+  const backupDirectory = new URL("../../../../.private/", import.meta.url);
   await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
   await writeFile(
     new URL(`migration-${Date.now()}.json`, backupDirectory),
@@ -108,7 +111,7 @@ async function main() {
   };
   // Preflight all conflicts and credential decryption before writing anything.
   const existing = await scan(target, targetTable);
-  const owned = existing.filter((item) => item.owner === owner && kinds.has(item.__edb_e__));
+  const owned = existing.filter((item) => isOwned(item) && kinds.has(item.__edb_e__));
   for (const item of owned) {
     const previous = source.find(
       (candidate) => candidate.pk === item.pk && candidate.sk === item.sk,

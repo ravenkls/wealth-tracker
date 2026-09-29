@@ -1172,3 +1172,140 @@ it("replaces archived budget destinations with automated Monzo accounts one at a
     "active cash or debt",
   );
 });
+
+it("allows investment and pension savings targets while protecting expense kinds, ownership and archived destinations", async () => {
+  const { WealthService } = await import("../application/wealth-service");
+  const { budgetInput } = await import("../application/schemas");
+  const service = new WealthService(store);
+  const owner = "planned-saving-targets";
+  const investment = randomUUID(),
+    pension = randomUUID(),
+    broker = randomUUID();
+  for (const [id, kind] of [
+    [investment, "investment"],
+    [pension, "pension"],
+  ] as const)
+    await service.saveAccount(owner, { id, name: kind, kind, archived: false, expectedVersion: 0 });
+  const now = "2026-09-01T00:00:00Z";
+  const connection: import("@wealth/domain").Connection = {
+    id: broker,
+    name: "ISA",
+    accountType: "isa",
+    version: 1,
+    encryptedCredentials: null,
+    disconnected: false,
+    valuation: {
+      connectionId: broker,
+      name: "ISA",
+      accountType: "isa",
+      total: pence(0),
+      cash: pence(0),
+      fetchedAt: now,
+      positions: [],
+    },
+    history: {
+      transactionsNext: null,
+      dividendsNext: null,
+      transactionsDone: true,
+      dividendsDone: true,
+      startedAt: now,
+      completedAt: now,
+      retryAt: null,
+      error: null,
+    },
+  };
+  await store.connections.save(owner, broker, connection, 0);
+  const plan = budgetInput.parse({
+    expectedVersion: 0,
+    plan: {
+      salary: 300000,
+      payFrequency: "monthly",
+      sideIncome: 0,
+      expenses: [],
+      savingsAllocations: [investment, pension, broker].map((id) => ({
+        id: randomUUID(),
+        name: "Savings",
+        amount: 10000,
+        frequency: "monthly",
+        destinationId: id,
+      })),
+      emergencyMonths: 3,
+      targetCashShare: 0.2,
+      aggressiveness: 1,
+      cashDestinationId: null,
+      investmentDestinationId: null,
+      cashGoal: null,
+      endOfYearGoal: null,
+      depositGoal: null,
+      depositInvestmentFraction: null,
+      depositSavingsFraction: null,
+      jobStartMonth: null,
+    },
+  }).plan;
+  await service.saveBudget(owner, plan, 0);
+  const saved = await service.bootstrap(owner);
+  expect(saved.budget?.plan.savingsAllocations.map((line) => line.destinationId)).toEqual([
+    investment,
+    pension,
+    broker,
+  ]);
+  expect(saved.budgetSummary).toMatchObject({ investmentSavings: 20000, pensionSavings: 10000 });
+  expect(saved.budgetSummary?.plannedSavingsRate).toBeCloseTo(290000 / 300000);
+  for (const id of [investment, pension, broker]) {
+    await expect(
+      service.saveBudget(
+        owner,
+        {
+          ...plan,
+          expenses: [{ ...plan.savingsAllocations[0]!, id: randomUUID(), destinationId: id }],
+        },
+        1,
+      ),
+    ).rejects.toThrow("active cash or debt");
+    await expect(
+      service.saveBudget(
+        "other-saving-user",
+        { ...plan, savingsAllocations: [{ ...plan.savingsAllocations[0]!, destinationId: id }] },
+        0,
+      ),
+    ).rejects.toThrow("active account");
+  }
+  for (const [id, kind] of [
+    [investment, "investment"],
+    [pension, "pension"],
+  ] as const)
+    await service.saveAccount(owner, { id, name: kind, kind, archived: true, expectedVersion: 1 });
+  await store.connections.save(owner, broker, { ...connection, disconnected: true, version: 2 }, 1);
+  // Existing references remain editable one at a time, but no new line can select them.
+  await service.saveBudget(owner, { ...plan, salary: pence(310000) }, 1);
+  const retired = await service.bootstrap(owner);
+  expect(retired.budgetTargets).toEqual(
+    expect.arrayContaining([
+      { id: investment, kind: "investment" },
+      { id: pension, kind: "pension" },
+      { id: broker, kind: "investment" },
+    ]),
+  );
+  expect(retired.budgetSummary).toMatchObject({ investmentSavings: 20000, pensionSavings: 10000 });
+  for (const id of [investment, pension, broker])
+    await expect(
+      service.saveBudget(
+        owner,
+        {
+          ...plan,
+          savingsAllocations: [
+            { ...plan.savingsAllocations[0]!, id: randomUUID(), destinationId: id },
+          ],
+        },
+        2,
+      ),
+    ).rejects.toThrow("active account");
+  await service.saveBudget(
+    owner,
+    {
+      ...plan,
+      savingsAllocations: plan.savingsAllocations.map((line) => ({ ...line, destinationId: null })),
+    },
+    2,
+  );
+});

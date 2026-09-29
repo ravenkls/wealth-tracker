@@ -1,4 +1,4 @@
-import { calculateBudget } from "./budget";
+import { calculateBudget, type BudgetDestination } from "./budget";
 import { forecastBudget } from "./budget-forecast";
 import { dynamicCashShare, roundedAllocation } from "./budget-rules";
 import { defaultForecastAssumptions, validateForecastAssumptions } from "./forecast-assumptions";
@@ -63,11 +63,11 @@ export function simulateBudget(
   plan: BudgetPlan,
   latest: Snapshot | null,
   months: number,
-  options: { paths?: number; seed?: number } = {},
+  options: { paths?: number; seed?: number; destinations?: readonly BudgetDestination[] } = {},
 ): BudgetSimulation {
   const assumptions = plan.forecastAssumptions ?? defaultForecastAssumptions;
   validateForecastAssumptions(assumptions);
-  const baseline = forecastBudget(plan, latest, months);
+  const baseline = forecastBudget(plan, latest, months, options.destinations);
   if (baseline.status === "unavailable") return baseline;
   if (!latest) return { status: "unavailable", reason: "Record a snapshot before simulating." };
   const paths = options.paths ?? 2000;
@@ -91,7 +91,7 @@ export function simulateBudget(
     };
   const hasUnknownCash =
     latest.investmentTotal > sumMoney(latest.investments.map((account) => account.total));
-  const summary = calculateBudget(plan, latest);
+  const summary = calculateBudget(plan, latest, options.destinations);
   const samples = baseline.points.map(() => ({
     cash: [] as number[],
     investments: [] as number[],
@@ -127,8 +127,10 @@ export function simulateBudget(
             status: "unavailable",
             reason: "Set emergency cover and the target cash share to allocate simulated savings.",
           };
-        const contribution =
-          surplus > 0 && share !== null ? roundedAllocation(surplus, 1 - share) : pence(0);
+        const contribution = sumMoney([
+          summary.investmentSavings,
+          surplus > 0 && share !== null ? roundedAllocation(surplus, 1 - share) : pence(0),
+        ]);
         const normal = Math.sqrt(-2 * Math.log(random())) * Math.cos(2 * Math.PI * random());
         const exposed = investments - brokerageCash;
         investments = sumMoney([
@@ -136,7 +138,13 @@ export function simulateBudget(
           pence(Math.round(exposed * Math.exp(drift + volatility * normal))),
           contribution,
         ]);
-        cash = sumMoney([cash, summary.income, pence(-spending), pence(-contribution)]);
+        cash = sumMoney([
+          cash,
+          summary.income,
+          pence(-spending),
+          pence(-contribution),
+          pence(-summary.pensionSavings),
+        ]);
       }
       const sample = samples[step]!;
       sample.cash.push(cash);

@@ -1,4 +1,4 @@
-import { calculateBudget } from "./budget";
+import { calculateBudget, type BudgetDestination } from "./budget";
 import { month, type Month } from "./month";
 import { pence, sumMoney, type Pence } from "./money";
 import type { BudgetPlan, Snapshot } from "./models";
@@ -17,6 +17,7 @@ export function forecastBudget(
   plan: BudgetPlan,
   latest: Snapshot | null,
   months: number,
+  destinations: readonly BudgetDestination[] = [],
 ): BudgetForecast {
   if (!Number.isInteger(months) || months < 1 || months > 60)
     throw new RangeError("Forecast length must be between 1 and 60 months.");
@@ -34,19 +35,24 @@ export function forecastBudget(
     },
   ];
   let projected = { ...latest };
-  const initial = calculateBudget(plan, latest);
+  const initial = calculateBudget(plan, latest, destinations);
   const start = Number(latest.month.slice(0, 4)) * 12 + Number(latest.month.slice(5)) - 1;
   for (let step = 1; step <= months; step++) {
-    const summary = calculateBudget(plan, projected);
+    const summary = calculateBudget(plan, projected, destinations);
     if (summary.surplus > 0 && summary.investmentAllocation === null)
       return {
         status: "unavailable",
         reason:
           "Set emergency cover and the target cash share, with balances that allow a cash/investment split, to project this surplus.",
       };
-    // Savings allocations and untransferred rounding remain cash; a deficit draws down cash.
-    const investmentChange = summary.investmentAllocation ?? pence(0);
-    const cashChange = pence(summary.income - summary.spending - investmentChange);
+    // Investment and pension allocations leave cash; unassigned savings and rounding remain.
+    const investmentChange = sumMoney([
+      summary.investmentAllocation ?? pence(0),
+      summary.investmentSavings,
+    ]);
+    const cashChange = pence(
+      summary.income - summary.spending - investmentChange - summary.pensionSavings,
+    );
     const ordinal = start + step;
     const nextMonth = month(
       `${String(Math.floor(ordinal / 12)).padStart(4, "0")}-${String((ordinal % 12) + 1).padStart(2, "0")}`,
@@ -65,5 +71,9 @@ export function forecastBudget(
       total: sumMoney([projected.cash, projected.investmentTotal]),
     });
   }
-  return { status: "complete", points, monthlyChange: pence(initial.income - initial.spending) };
+  return {
+    status: "complete",
+    points,
+    monthlyChange: pence(initial.income - initial.spending - initial.pensionSavings),
+  };
 }

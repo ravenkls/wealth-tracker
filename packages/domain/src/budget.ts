@@ -7,14 +7,34 @@ import {
   roundedAllocation,
 } from "./budget-rules";
 import { pence, sumMoney } from "./money";
-import type { BudgetLine, BudgetPlan, Snapshot } from "./models";
+import type { BudgetLine, BudgetPlan, Snapshot, ManualAccount } from "./models";
 export function monthlyLine(line: BudgetLine) {
   return line.frequency === "annual" ? annualProvision(line.amount) : line.amount;
 }
-export function calculateBudget(plan: BudgetPlan, latest: Snapshot | null) {
+export type BudgetDestination = Pick<ManualAccount, "id" | "kind">;
+export function calculateBudget(
+  plan: BudgetPlan,
+  latest: Snapshot | null,
+  targets: readonly BudgetDestination[] = [],
+) {
   const income = sumMoney([monthlyPay(plan.salary, plan.payFrequency), plan.sideIncome]);
   const spending = sumMoney(plan.expenses.map(monthlyLine));
   const explicitSavings = sumMoney(plan.savingsAllocations.map(monthlyLine));
+  const kinds = new Map<string, ManualAccount["kind"]>([
+    ...(latest?.balances.map((account) => [account.accountId, account.kind] as const) ?? []),
+    ...(latest?.investments.map((account) => [account.connectionId, "investment"] as const) ?? []),
+    ...targets.map((account) => [account.id, account.kind] as const),
+  ]);
+  const investmentSavings = sumMoney(
+    plan.savingsAllocations
+      .filter((line) => line.destinationId && kinds.get(line.destinationId) === "investment")
+      .map(monthlyLine),
+  );
+  const pensionSavings = sumMoney(
+    plan.savingsAllocations
+      .filter((line) => line.destinationId && kinds.get(line.destinationId) === "pension")
+      .map(monthlyLine),
+  );
   const surplus = pence(income - spending - explicitSavings);
   const emergency =
     plan.emergencyMonths === null ? null : emergencyTarget(spending, plan.emergencyMonths);
@@ -57,13 +77,15 @@ export function calculateBudget(plan: BudgetPlan, latest: Snapshot | null) {
     income,
     spending,
     explicitSavings,
+    investmentSavings,
+    pensionSavings,
     surplus,
     emergency,
     cashShare,
     cashAllocation,
     investmentAllocation,
     remainder,
-    plannedSavingsRate: income > 0 ? (income - spending) / income : null,
+    plannedSavingsRate: income > 0 ? (income - spending - pensionSavings) / income : null,
     funding: [...destinations].map(([destinationId, value]) => ({
       destinationId,
       monthly: pence(value),

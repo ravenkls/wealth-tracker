@@ -42,6 +42,7 @@ export type {
   CashEvent,
 } from "./models";
 export { calculateBudget, monthlyLine } from "./budget";
+export type { BudgetDestination } from "./budget";
 export { inferSavings } from "./savings";
 export type { SavingsMetrics, SavingsResult } from "./savings";
 export { projectSavings } from "./projections";

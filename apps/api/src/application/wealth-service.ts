@@ -116,20 +116,28 @@ export class WealthService {
     const connectionIds = new Set(
       connections.filter((record) => !record.data.disconnected).map((record) => record.id),
     );
-    for (const section of ["expenses", "savingsAllocations"] as const)
+    const savingsIds = new Set([...activeAccounts.map((record) => record.id), ...connectionIds]);
+    const retiredSavingsIds = new Set([
+      ...accounts.filter((record) => record.data.archived).map((record) => record.id),
+      ...connections.filter((record) => record.data.disconnected).map((record) => record.id),
+    ]);
+    for (const section of ["expenses", "savingsAllocations"] as const) {
+      const eligible = section === "expenses" ? accountIds : savingsIds;
+      const retired = section === "expenses" ? archivedCashIds : retiredSavingsIds;
       for (const line of plan[section])
         if (
           line.destinationId &&
-          !accountIds.has(line.destinationId) &&
+          !eligible.has(line.destinationId) &&
           !unchangedRetired(
             line.destinationId,
             previous?.data[section].find((item) => item.id === line.id)?.destinationId,
-            archivedCashIds,
+            retired,
           )
         )
           throw new InputError(
-            `${line.name}: choose an active cash or debt account for its destination.`,
+            `${line.name}: choose an active ${section === "expenses" ? "cash or debt account" : "account or Trading 212 connection"} for its destination.`,
           );
+    }
     if (
       plan.cashDestinationId &&
       !accountIds.has(plan.cashDestinationId) &&
@@ -206,7 +214,12 @@ export class WealthService {
         result: inferSavings(previous, snapshot, events, complete),
       });
     }
+    const budgetTargets = [
+      ...accounts.map((record) => ({ id: record.id, kind: record.data.kind })),
+      ...connections.map((record) => ({ id: record.id, kind: "investment" as const })),
+    ];
     return {
+      budgetTargets,
       preferences: preferences.map(({ id, version, data }) => ({ id, version, preferences: data })),
       bankConnections: banks
         .filter((record) => !record.data.disconnected)
@@ -217,7 +230,7 @@ export class WealthService {
         .map((record) => publicConnection(record.data)),
       snapshots: history,
       budget: budget ? { version: budget.version, plan: budget.data } : null,
-      budgetSummary: budget ? calculateBudget(budget.data, latest) : null,
+      budgetSummary: budget ? calculateBudget(budget.data, latest, budgetTargets) : null,
       metrics,
       projections: projectSavings(budget?.data ?? null, history, metrics, currentMonth(new Date())),
     };

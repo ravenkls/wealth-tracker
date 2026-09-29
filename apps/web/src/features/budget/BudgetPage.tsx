@@ -100,10 +100,23 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
     ...data.accounts.filter((account) => !account.archived && account.kind === "investment"),
     ...data.connections,
   ];
+  const savingsDestinations = [
+    ...data.accounts.filter((account) => !account.archived),
+    ...data.connections.map((connection) => ({ ...connection, kind: "investment" as const })),
+  ];
+  const budgetTargets = data.budgetTargets ?? [
+    ...data.accounts,
+    ...data.connections.map((connection) => ({ id: connection.id, kind: "investment" as const })),
+  ];
   const hasUnavailableDestinations =
-    [...expenses, ...allocations].some(
+    expenses.some(
       (line) =>
         line.destinationId && !cashAccounts.some((account) => account.id === line.destinationId),
+    ) ||
+    allocations.some(
+      (line) =>
+        line.destinationId &&
+        !savingsDestinations.some((account) => account.id === line.destinationId),
     ) ||
     (!!settings.cashDestinationId &&
       !cashAccounts.some((account) => account.id === settings.cashDestinationId)) ||
@@ -258,7 +271,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
   let summary: ReturnType<typeof calculateBudget> | null = null;
   try {
     chartPlan = normalizeBudgetCategories(readPlan());
-    summary = calculateBudget(chartPlan, data.snapshots.at(-1) ?? null);
+    summary = calculateBudget(chartPlan, data.snapshots.at(-1) ?? null, budgetTargets);
   } catch {
     /* Partial form values have no preview. */
   }
@@ -324,6 +337,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
         <BudgetForecastChart
           plan={chartPlan}
           latest={data.snapshots.at(-1) ?? null}
+          destinations={budgetTargets}
           assumptions={
             <ForecastAssumptionsEditor
               draft={forecastSettings}
@@ -388,13 +402,19 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
               />
             </Section>
             <Section title="Planned savings">
+              {!!summary?.pensionSavings && (
+                <Typography color="text.secondary" sx={{ fontSize: 12, mb: 2 }}>
+                  Pension allocations come from take-home income and are excluded from the forecast
+                  and savings rate.
+                </Typography>
+              )}
               <LineEditor
                 data={data}
                 categories={categories}
                 tableId="allocations"
                 lines={allocations}
                 onChange={setAllocations}
-                accounts={cashAccounts}
+                accounts={savingsDestinations}
                 addLabel="Add saving allocation"
               />
             </Section>
@@ -612,8 +632,9 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
                         sx={{ display: "flex", justifyContent: "space-between", gap: 2, py: 1 }}
                       >
                         <Typography sx={{ fontSize: 13 }}>
-                          {destinations.find((account) => account.id === funding.destinationId)
-                            ?.name ?? "Unavailable account"}
+                          {savingsDestinations.find(
+                            (account) => account.id === funding.destinationId,
+                          )?.name ?? "Unavailable account"}
                         </Typography>
                         <Typography sx={{ fontSize: 13, whiteSpace: "nowrap", flexShrink: 0 }}>
                           {formatGbp(funding.perPayPeriod)}
@@ -635,7 +656,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
         <BudgetCharts
           plan={chartPlan}
           latest={data.snapshots.at(-1) ?? null}
-          destinations={destinations}
+          destinations={savingsDestinations}
         />
       )}
     </Box>

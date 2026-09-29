@@ -1,4 +1,6 @@
 import { expect, it } from "vitest";
+import { simulateBudget } from "./budget-simulation";
+import { defaultForecastAssumptions } from "./forecast-assumptions";
 import { forecastBudget } from "./budget-forecast";
 import { budgetFlow } from "./budget-flow";
 import { emergencyCoverage } from "./emergency-coverage";
@@ -271,4 +273,110 @@ it("omits zero-value flow nodes and combines categories without colliding with a
   const flow = budgetFlow(budget, snapshot(), [{ id: "bank", name: "Home" }]);
   expect(flow.nodes.filter((node) => node.kind === "expense")).toHaveLength(1);
   expect(flow.nodes.filter((node) => node.name === "Home")).toHaveLength(2);
+});
+
+it("routes planned investments and pensions out of cash and excludes pension saving from accessible growth and savings rates", () => {
+  const input = plan({
+    forecastAssumptions: { ...defaultForecastAssumptions, annualGrowth: 0, annualVolatility: 0 },
+    savingsAllocations: [
+      {
+        id: "invest",
+        name: "Fund",
+        amount: pence(30000),
+        frequency: "monthly",
+        destinationId: "manual-investment",
+      },
+      {
+        id: "broker",
+        name: "ISA",
+        amount: pence(20000),
+        frequency: "monthly",
+        destinationId: "broker",
+      },
+      {
+        id: "pension",
+        name: "Pension",
+        amount: pence(120000),
+        frequency: "annual",
+        destinationId: "pension",
+      },
+      { id: "cash", name: "Cash", amount: pence(40000), frequency: "monthly", destinationId: null },
+    ],
+  });
+  const targets = [
+    { id: "manual-investment", kind: "investment" as const },
+    { id: "broker", kind: "investment" as const },
+    { id: "pension", kind: "pension" as const },
+  ];
+  const start = snapshot();
+  const summary = calculateBudget(input, start, targets);
+  expect(summary).toMatchObject({
+    explicitSavings: 100000,
+    investmentSavings: 50000,
+    pensionSavings: 10000,
+    surplus: 100000,
+  });
+  expect(summary.plannedSavingsRate).toBeCloseTo(190000 / 300000);
+  expect(summary.funding).toContainEqual({
+    destinationId: "pension",
+    monthly: 10000,
+    perPayPeriod: 10000,
+  });
+  const forecast = forecastBudget(input, start, 12, targets);
+  if (forecast.status !== "complete") throw new Error(forecast.reason);
+  expect(forecast.monthlyChange).toBe(190000);
+  expect(forecast.points[1]).toMatchObject({ cash: 140000, investments: 1050000, total: 1190000 });
+  const simulated = simulateBudget(input, start, 12, { paths: 20, destinations: targets });
+  if (simulated.status !== "complete") throw new Error(simulated.reason);
+  for (const [index, point] of forecast.points.entries())
+    for (const metric of ["cash", "investments", "total"] as const)
+      expect(simulated.points[index]![metric]).toEqual({
+        low: point[metric],
+        median: point[metric],
+        high: point[metric],
+      });
+});
+
+it("retains planned investment contributions in a deficit and falls back to recorded destination kinds", () => {
+  const input = plan({
+    salary: pence(50000),
+    savingsAllocations: [
+      {
+        id: "invest",
+        name: "ISA",
+        amount: pence(20000),
+        frequency: "monthly",
+        destinationId: "broker",
+      },
+      {
+        id: "pension",
+        name: "Pension",
+        amount: pence(10000),
+        frequency: "monthly",
+        destinationId: "pension",
+      },
+    ],
+  });
+  const start = snapshot({
+    balances: [{ accountId: "pension", name: "Pension", kind: "pension", balance: pence(500000) }],
+    investments: [
+      {
+        connectionId: "broker",
+        name: "ISA",
+        accountType: "isa",
+        total: pence(1000000),
+        cash: pence(0),
+        fetchedAt: "2026-09-01T00:00:00Z",
+        positions: [],
+      },
+    ],
+  });
+  const forecast = forecastBudget(input, start, 1);
+  expect(forecast).toMatchObject({
+    status: "complete",
+    points: [{}, { cash: -80000, investments: 1020000, total: 940000 }],
+  });
+  expect(calculateBudget(input, start).pensionSavings).toBe(10000);
+  // Current account metadata takes precedence over an older saved classification.
+  expect(calculateBudget(input, start, [{ id: "pension", kind: "cash" }]).pensionSavings).toBe(0);
 });

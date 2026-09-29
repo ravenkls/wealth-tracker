@@ -14,6 +14,7 @@ import {
   formatGbp,
   formatMonth,
   type BudgetPlan,
+  type BudgetDestination,
   type Snapshot,
 } from "@wealth/domain";
 import { ChartEmpty, ChartFrame } from "../../components/charts/ChartFrame";
@@ -24,19 +25,21 @@ export function BudgetForecastChart({
   plan,
   latest,
   assumptions,
+  destinations,
 }: {
   readonly plan: BudgetPlan | null;
   readonly latest: Snapshot | null;
   readonly assumptions: ReactNode;
+  readonly destinations: readonly BudgetDestination[];
 }) {
   const [horizon, setHorizon] = useState(12);
   const [metric, setMetric] = useState<ForecastMetric>("total");
   const [expanded, setExpanded] = useState(false);
-  const simulation = useBudgetSimulation(plan, latest, horizon);
+  const simulation = useBudgetSimulation(plan, latest, horizon, destinations);
   let forecast: ReturnType<typeof forecastBudget>;
   try {
     forecast = plan
-      ? forecastBudget(plan, latest, horizon)
+      ? forecastBudget(plan, latest, horizon, destinations)
       : {
           status: "unavailable",
           reason: "Complete the budget and enter valid forecast assumptions to see the projection.",

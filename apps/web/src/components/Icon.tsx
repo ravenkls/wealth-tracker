@@ -4,6 +4,7 @@ const paths = {
   overview: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
   accounts: "M3 7h18v13H3z M3 7l3-4h12l3 4 M15 12h6v4h-6z",
   budget: "M4 20V10 M10 20V4 M16 20v-8 M22 20H2",
+  analysis: "M4 20V4 M4 20h17 M8 15l4-5 4 2 5-7",
   history: "M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v6l4 2",
   plus: "M12 5v14 M5 12h14",
   chevron: "m9 5 7 7-7 7",

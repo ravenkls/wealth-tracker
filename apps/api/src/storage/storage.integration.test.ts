@@ -1501,3 +1501,198 @@ it("records mixed bank snapshots with per-account Endute timestamps and blocks f
   await f.service.refresh(f.owner, "endute");
   expect((await store.snapshots.get(f.owner, input.month))?.data.total).toBe(130000);
 });
+
+function enduteTransaction(index: number, date = "2026-09-28") {
+  return {
+    id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    booking_date: date,
+    value_date: date,
+    amount: "-12.80",
+    currency: "GBP",
+    description: `Transaction ${index}`,
+    counterparty: null,
+    enrichment: {
+      merchant_name: "Shop",
+      category: "Shopping",
+      brand_domain: null,
+      confidence: null,
+      source: null,
+    },
+    sandbox: false,
+  };
+}
+async function analysisFixture() {
+  const f = await enduteFixture();
+  const { EnduteTransactionsService } = await import("../application/endute-transactions");
+  const { vi } = await import("vitest");
+  let time = new Date("2026-09-28T12:00:00Z");
+  const provider = {
+    accounts: vi.fn<import("../integrations/endute").EnduteTransactionProvider["accounts"]>(
+      async () => [{ id: "bank", name: "Savings", institution: "Bank" }],
+    ),
+    transactions: vi.fn<import("../integrations/endute").EnduteTransactionProvider["transactions"]>(
+      async () => ({ results: [enduteTransaction(1)], next: null }),
+    ),
+  };
+  const service = new EnduteTransactionsService(store, provider, f.cipher, () => time);
+  return {
+    ...f,
+    transactionProvider: provider,
+    transactions: service,
+    setTime: (stamp: string) => {
+      time = new Date(stamp);
+    },
+  };
+}
+it("imports transactions idempotently, moves corrected dates and paginates server-side with owner isolation", async () => {
+  const f = await analysisFixture();
+  const rows = Array.from({ length: 65 }, (_, i) => enduteTransaction(i + 1));
+  f.transactionProvider.transactions.mockResolvedValue({ results: rows, next: null });
+  const result = await f.transactions.sync(f.owner);
+  expect(result).toMatchObject({ error: null, backfilling: false });
+  const first = await f.transactions.list(f.owner);
+  expect(first.rows).toHaveLength(50);
+  expect(first.nextCursor).not.toBeNull();
+  const next = await f.transactions.list(f.owner, first.nextCursor!);
+  expect(next.rows).toHaveLength(15);
+  const ids = [...first.rows, ...next.rows].map((row) => row.id);
+  expect(new Set(ids).size).toBe(65);
+  expect(first.rows[0]).toMatchObject({
+    accountId: "bank",
+    accountName: "Savings",
+    institution: "Bank",
+    amount: "-12.80",
+  });
+  f.setTime("2026-09-28T12:05:00Z");
+  await f.transactions.sync(f.owner);
+  expect((await store.transactions.list(f.owner, undefined, 100)).rows).toHaveLength(65);
+  expect(f.transactionProvider.transactions.mock.calls.at(-1)?.[3]).toBe("2026-09-21");
+  f.transactionProvider.transactions.mockResolvedValue({
+    results: [
+      {
+        ...enduteTransaction(1, "2026-09-29"),
+        description: "Corrected",
+        enrichment: { ...enduteTransaction(1).enrichment, category: "Groceries" },
+      },
+    ],
+    next: null,
+  });
+  f.setTime("2026-09-28T12:10:00Z");
+  await f.transactions.sync(f.owner);
+  const corrected = await store.transactions.list(f.owner, undefined, 100);
+  expect(corrected.rows).toHaveLength(65);
+  expect(corrected.rows[0]).toMatchObject({
+    id: enduteTransaction(1).id,
+    booking_date: "2026-09-29",
+    description: "Corrected",
+    enrichment: { category: "Groceries" },
+  });
+  expect((await store.transactions.list("another-user")).rows).toEqual([]);
+  await expect(store.transactions.list("another-user", first.nextCursor!)).rejects.toThrow(
+    "Invalid transaction page",
+  );
+  await expect(f.transactions.list(f.owner, "invalid-cursor")).rejects.toThrow(
+    "Invalid transaction page",
+  );
+});
+
+it("resumes bounded history imports and retains the original window across a long backfill", async () => {
+  const f = await analysisFixture();
+  f.transactionProvider.accounts.mockResolvedValue([
+    { id: "bank", name: "Savings", institution: "Bank" },
+    { id: "other", name: "Other", institution: "Bank" },
+  ]);
+  f.transactionProvider.transactions.mockImplementation(async (_key, account, path) => {
+    if (account === "other") return { results: [enduteTransaction(999)], next: null };
+    const index = path ? Number(path.split("=")[1]) : 1;
+    return { results: [enduteTransaction(index)], next: index < 12 ? `next=${index + 1}` : null };
+  });
+  const first = await f.transactions.sync(f.owner);
+  expect(first?.backfilling).toBe(true);
+  expect(f.transactionProvider.transactions).toHaveBeenCalledTimes(10);
+  expect((await store.transactions.list(f.owner, undefined, 100)).rows).toHaveLength(10);
+  const progress = await store.transactions.state(f.owner);
+  expect(progress.accounts.bank?.next).toBe("next=10");
+  f.setTime("2026-10-12T12:00:00Z");
+  await f.transactions.sync(f.owner);
+  expect((await store.transactions.state(f.owner)).accounts.bank).toMatchObject({
+    backfillDone: true,
+    lastCompletedAt: "2026-09-28T12:00:00.000Z",
+  });
+  f.transactionProvider.transactions.mockResolvedValue({ results: [], next: null });
+  f.setTime("2026-10-12T12:05:00Z");
+  await f.transactions.sync(f.owner);
+  expect(
+    f.transactionProvider.transactions.mock.calls.some(
+      (call) => call[1] === "bank" && call[3] === "2026-09-21",
+    ),
+  ).toBe(true);
+});
+
+it("serializes manual and scheduled imports, obeys Retry-After and resumes after provider failure", async () => {
+  const f = await analysisFixture();
+  const state = await store.transactions.acquire(
+    f.owner,
+    "busy",
+    Date.parse("2026-09-28T12:00:00Z"),
+  );
+  expect((await f.transactions.sync(f.owner))?.syncing).toBe(true);
+  expect(f.transactionProvider.accounts).not.toHaveBeenCalled();
+  await store.transactions.checkpoint(f.owner, state!, true);
+  const { EnduteError } = await import("../integrations/endute");
+  f.transactionProvider.transactions.mockRejectedValueOnce(
+    new EnduteError("Rate limited", "throttled", 42),
+  );
+  expect(await f.transactions.sync(f.owner)).toMatchObject({
+    error: "Rate limited",
+    retryAt: "2026-09-28T12:00:42.000Z",
+    syncing: false,
+  });
+  const calls = f.transactionProvider.accounts.mock.calls.length;
+  await f.transactions.sync(f.owner, true);
+  expect(f.transactionProvider.accounts).toHaveBeenCalledTimes(calls);
+  f.setTime("2026-09-28T12:01:00Z");
+  expect((await f.transactions.sync(f.owner))?.error).toBeNull();
+  expect((await f.transactions.list(f.owner)).rows).toHaveLength(1);
+});
+
+it("stops transaction access and scheduled imports on disconnect, without deleting saved records", async () => {
+  const f = await analysisFixture();
+  await f.transactions.sync(f.owner);
+  expect((await store.transactions.jobs()).owners).toContain(f.owner);
+  await f.service.disconnect(f.owner, "endute", f.bank.version);
+  expect((await store.transactions.jobs()).owners).not.toContain(f.owner);
+  await expect(f.transactions.status(f.owner)).rejects.toThrow("Connect Endute");
+  await expect(f.transactions.list(f.owner)).rejects.toThrow("Connect Endute");
+  await expect(f.transactions.sync(f.owner)).rejects.toThrow("Connect Endute");
+  expect(await f.transactions.sync(f.owner, true)).toBeNull();
+  expect((await store.transactions.list(f.owner)).rows).toHaveLength(1);
+});
+
+it("rejects imports from expired leases and keys rotated during a transaction read", async () => {
+  const f = await analysisFixture();
+  const old = await store.transactions.acquire(f.owner, "old", 100);
+  const newer = await store.transactions.acquire(f.owner, "new", 150101);
+  const row = {
+    ...enduteTransaction(1),
+    accountId: "bank",
+    accountName: "Bank",
+    institution: "Bank",
+    importedAt: "2026-09-28T12:00:00Z",
+  };
+  await expect(store.transactions.putPage(f.owner, [row], "old")).rejects.toHaveProperty(
+    "name",
+    "TransactionCanceledException",
+  );
+  await expect(store.transactions.checkpoint(f.owner, old!, true)).rejects.toHaveProperty(
+    "name",
+    "ConditionalCheckFailedException",
+  );
+  await store.transactions.checkpoint(f.owner, newer!, true);
+  f.transactionProvider.transactions.mockImplementationOnce(async () => {
+    await f.service.connect(f.owner, { apiKey: "rotated", expectedVersion: f.bank.version });
+    return { results: [enduteTransaction(1)], next: null };
+  });
+  expect((await f.transactions.sync(f.owner))?.error).toContain("could not finish");
+  expect((await store.transactions.list(f.owner)).rows).toHaveLength(0);
+});

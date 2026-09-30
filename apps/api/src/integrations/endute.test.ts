@@ -130,3 +130,65 @@ it("rejects duplicate identities and invalid JSON", async () => {
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response("not json"));
   await expect(new EnduteClient(fetcher).value("key")).rejects.toThrow("incomplete");
 });
+
+const transaction = {
+  id: "d1c2b3a4-5e6f-4708-9a0b-1c2d3e4f5061",
+  booking_date: "2026-09-28",
+  value_date: "2026-09-28",
+  amount: "-12.80",
+  currency: "GBP",
+  description: "TESCO STORES",
+  counterparty: "Tesco",
+  enrichment: {
+    merchant_name: "Tesco",
+    category: "Groceries",
+    brand_domain: "tesco.com",
+    confidence: null,
+    source: null,
+  },
+  sandbox: false,
+};
+it("fetches complete transaction metadata with date filters and validated next links", async () => {
+  const next = `https://api.endute.com/v1/accounts/${id}/transactions?cursor=next`;
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockImplementation(async () => Response.json({ results: [transaction], next }));
+  const client = new EnduteClient(fetcher);
+  expect(
+    await client.transactions("key", id, undefined, "2026-09-20", AbortSignal.timeout(1000)),
+  ).toEqual({ results: [transaction], next });
+  expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+    `https://api.endute.com/v1/accounts/${id}/transactions?from=2026-09-20`,
+  );
+  await client.transactions("key", id, next, null, AbortSignal.timeout(1000));
+  expect(String(fetcher.mock.calls[1]?.[0])).toBe(next);
+});
+it.each([
+  "https://attacker.example/transactions",
+  `https://api.endute.com/v1/accounts/${otherId}/transactions`,
+  `https://user:password@api.endute.com/v1/accounts/${id}/transactions`,
+  `https://api.endute.com/v1/accounts/${id}/balances`,
+])("rejects unsafe transaction pagination without sending credentials: %s", async (path) => {
+  const fetcher = vi.fn<typeof fetch>();
+  await expect(
+    new EnduteClient(fetcher).transactions("secret", id, path, null, AbortSignal.timeout(1000)),
+  ).rejects.toThrow("pagination");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+it("rejects hostile next URLs and malformed transaction rows before ingestion", async () => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockImplementation(async () =>
+      Response.json({ results: [transaction], next: "https://attacker.example/next" }),
+    );
+  const client = new EnduteClient(fetcher);
+  await expect(
+    client.transactions("key", id, undefined, null, AbortSignal.timeout(1000)),
+  ).rejects.toThrow("pagination");
+  fetcher.mockImplementation(async () =>
+    Response.json({ results: [{ ...transaction, booking_date: "yesterday" }], next: null }),
+  );
+  await expect(
+    client.transactions("key", id, undefined, null, AbortSignal.timeout(1000)),
+  ).rejects.toThrow("incomplete");
+});

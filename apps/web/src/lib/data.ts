@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 export type AppData = Awaited<ReturnType<typeof api.bootstrap.query>>;
-export function useAppData() {
+export function useAppData(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ["wealth"],
     queryFn: () => api.bootstrap.query(),
     refetchOnWindowFocus: true,

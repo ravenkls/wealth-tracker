@@ -1,3 +1,6 @@
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+import { runEnduteSchedule } from "../application/endute-scheduler";
+import { EnduteTransactionsService } from "../application/endute-transactions";
 import { EnduteService } from "../application/endute-service";
 import { EnduteClient } from "../integrations/endute";
 import { MonzoService } from "../application/monzo-service";
@@ -57,10 +60,13 @@ async function initialize() {
   const provider = new Trading212Client();
   const cipher = new KmsCredentialCipher(new KMSClient({}), config.CREDENTIAL_KEY_ARN);
   const monzo = new MonzoService(store, new MonzoClient(), cipher, config.APP_ORIGIN);
-  const endute = new EnduteService(store, new EnduteClient(), cipher);
+  const enduteClient = new EnduteClient();
+  const analysis = new EnduteTransactionsService(store, enduteClient, cipher);
+  const endute = new EnduteService(store, enduteClient, cipher);
   const router = createRouter({
     monzo,
     endute,
+    analysis,
     wealth: new WealthService(store),
     connections: new ConnectionService(store, provider, cipher),
     snapshots: new SnapshotService(store, provider, cipher, undefined, monzo, endute),
@@ -77,6 +83,8 @@ async function initialize() {
   });
   return {
     config,
+    store,
+    analysis,
     auth,
     router,
     handleAuth: createAuthRequestHandler(auth, config.APP_ORIGIN, monzo),
@@ -132,4 +140,25 @@ export async function handler(event: APIGatewayProxyEventV2) {
       Response.json({ error: "Service temporarily unavailable." }, { status: 503 }),
     );
   }
+}
+
+// This handler is invoked through IAM by the scheduler, never through API Gateway.
+export async function syncHandler(event: unknown) {
+  runtime ??= initialize().catch((error: unknown) => {
+    runtime = undefined;
+    throw error;
+  });
+  const { store, analysis } = await runtime;
+  const functionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  if (!functionName) throw new Error("Transaction worker function name is missing.");
+  const lambda = new LambdaClient({});
+  await runEnduteSchedule(event, store.transactions, analysis, async (payload) => {
+    await lambda.send(
+      new InvokeCommand({
+        FunctionName: functionName,
+        InvocationType: "Event",
+        Payload: Buffer.from(JSON.stringify(payload)),
+      }),
+    );
+  });
 }

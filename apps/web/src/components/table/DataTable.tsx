@@ -75,7 +75,7 @@ export interface DataColumn<T> {
   sortable?: boolean;
   minWidth?: number;
 }
-type TableId = "accounts" | "history" | "expenses" | "allocations" | "connections";
+type TableId = "accounts" | "history" | "expenses" | "allocations" | "connections" | "analysis";
 const empty: TablePreferences = { columnOrder: [], rowOrder: [], grouping: [], sorting: [] };
 export function DataTable<T extends object>({
   id,
@@ -87,6 +87,7 @@ export function DataTable<T extends object>({
   reorder = false,
   disabled = false,
   defaultGrouping = empty.grouping,
+  pagination,
 }: {
   readonly id: TableId;
   readonly label: string;
@@ -97,13 +98,24 @@ export function DataTable<T extends object>({
   readonly reorder?: boolean;
   readonly disabled?: boolean;
   readonly defaultGrouping?: string[];
+  readonly pagination?: {
+    pageIndex: number;
+    hasNext: boolean;
+    loading: boolean;
+    onNext: () => void;
+    onPrevious: () => void;
+    onFirst: () => void;
+  };
 }) {
   const remote = data.preferences.find((item) => item.id === id);
   const [local, setLocal] = useState<{ version: number; preferences: TablePreferences } | null>(
     null,
   );
   const saved = local && local.version >= (remote?.version ?? 0) ? local : remote;
-  const preferences = saved?.preferences ?? { ...empty, grouping: defaultGrouping };
+  const persisted = saved?.preferences ?? { ...empty, grouping: defaultGrouping };
+  const preferences = pagination
+    ? { ...persisted, grouping: [], sorting: [], rowOrder: [] }
+    : persisted;
   const groupingKey = JSON.stringify(preferences.grouping);
   const [expansion, setExpansion] = useState<{ key: string; value: ExpandedState }>({
     key: groupingKey,
@@ -242,10 +254,11 @@ export function DataTable<T extends object>({
           tabIndex={0}
           component="section"
           aria-label={label + " scroll area"}
-          sx={{ overflowX: "auto" }}
+          sx={{ overflowX: "auto", maxHeight: pagination ? "60vh" : undefined }}
         >
           <Table
             size="small"
+            stickyHeader={!!pagination}
             aria-label={label}
             sx={{
               "& td, & th": { px: 1.5, py: 0.6 },
@@ -389,6 +402,52 @@ export function DataTable<T extends object>({
           </Table>
         </TableContainer>
       </DndContext>
+      {pagination && (
+        <Stack
+          direction="row"
+          sx={{
+            p: 1.5,
+            gap: 1,
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            borderTop: 1,
+            borderColor: "divider",
+          }}
+        >
+          <Box
+            sx={{
+              mr: "auto",
+              width: { xs: "100%", sm: "auto" },
+              fontSize: 13,
+              color: "text.secondary",
+            }}
+          >
+            Page {pagination.pageIndex + 1} · {rows.length} transactions
+          </Box>
+          <Button
+            size="small"
+            disabled={pagination.loading || pagination.pageIndex === 0}
+            onClick={pagination.onFirst}
+          >
+            First
+          </Button>
+          <Button
+            size="small"
+            disabled={pagination.loading || pagination.pageIndex === 0}
+            onClick={pagination.onPrevious}
+          >
+            Previous
+          </Button>
+          <Button
+            size="small"
+            disabled={pagination.loading || !pagination.hasNext}
+            onClick={pagination.onNext}
+          >
+            Next
+          </Button>
+        </Stack>
+      )}
     </Paper>
   );
 }

@@ -18,4 +18,12 @@ run "production_security" {
     condition     = toset([for behavior in aws_cloudfront_distribution.web.ordered_cache_behavior : behavior.path_pattern]) == toset(["/api/*", "/auth/*"])
     error_message = "API and authentication paths must bypass the SPA cache."
   }
+  assert {
+    condition     = aws_scheduler_schedule.endute_sync.schedule_expression == "rate(5 minutes)" && aws_scheduler_schedule.endute_sync.flexible_time_window[0].mode == "OFF"
+    error_message = "Endute transactions must sync every five minutes."
+  }
+  assert {
+    condition     = aws_lambda_function.endute_sync.handler == "index.syncHandler" && aws_lambda_function.endute_sync.timeout == 120
+    error_message = "Transaction sync must use its private worker handler with a bounded timeout."
+  }
 }

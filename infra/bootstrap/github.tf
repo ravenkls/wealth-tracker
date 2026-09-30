@@ -129,7 +129,13 @@ resource "aws_iam_role_policy" "github_deploy" {
           "iam:UpdateAssumeRolePolicy",
           "iam:UpdateRoleDescription"
         ]
-        Resource = "arn:aws:iam::235607286117:role/wealth-tracker-production-lambda"
+        Resource = ["arn:aws:iam::235607286117:role/wealth-tracker-production-lambda", "arn:aws:iam::235607286117:role/wealth-tracker-production-endute-scheduler"]
+      },
+      {
+        Sid      = "ManageEnduteSchedule"
+        Effect   = "Allow"
+        Action   = ["scheduler:CreateSchedule", "scheduler:GetSchedule", "scheduler:UpdateSchedule", "scheduler:DeleteSchedule"]
+        Resource = "arn:aws:scheduler:eu-west-2:235607286117:schedule/default/wealth-tracker-production-endute-sync"
       },
       {
         Sid    = "ManageWealthDns"

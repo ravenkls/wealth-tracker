@@ -1,3 +1,4 @@
+import { useAppData } from "../lib/data";
 import {
   Avatar,
   Box,
@@ -19,6 +20,7 @@ const navigation = [
   ["accounts", "Accounts"],
   ["budget", "Budget"],
   ["history", "History"],
+  ["analysis", "Analysis"],
 ] as const;
 
 interface AppShellProps {
@@ -31,6 +33,10 @@ interface AppShellProps {
 
 export function AppShell({ children, preview, onRecord, user, onLogout }: AppShellProps) {
   const location = useLocation();
+  const wealth = useAppData(!preview && !!user);
+  const analysisEnabled =
+    !preview &&
+    !!wealth.data?.bankConnections.some((connection) => connection.provider === "endute");
   const appearance = useAppearance();
   return (
     <>
@@ -85,12 +91,16 @@ export function AppShell({ children, preview, onRecord, user, onLogout }: AppShe
               component={Link}
               to={icon === "overview" ? "/" : `/${icon}`}
               selected={location.pathname === (icon === "overview" ? "/" : `/${icon}`)}
-              disabled={preview && icon !== "overview"}
+              disabled={
+                (preview && icon !== "overview") || (icon === "analysis" && !analysisEnabled)
+              }
               aria-current={
                 location.pathname === (icon === "overview" ? "/" : `/${icon}`) ? "page" : undefined
               }
               aria-label={label}
-              title={label}
+              title={
+                icon === "analysis" && !analysisEnabled ? "Connect Endute to use Analysis" : label
+              }
               sx={{ justifyContent: { xs: "center", md: "start" }, px: { xs: 1, md: 1.75 } }}
             >
               <ListItemIcon sx={{ minWidth: { xs: 0, md: 32 } }}>

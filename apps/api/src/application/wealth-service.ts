@@ -218,6 +218,8 @@ export class WealthService {
       ...accounts.map((record) => ({ id: record.id, kind: record.data.kind })),
       ...connections.map((record) => ({ id: record.id, kind: "investment" as const })),
     ];
+    if (banks.some((bank) => bank.data.provider === "endute" && !bank.data.disconnected))
+      await this.store.transactions.register(userId);
     return {
       budgetTargets,
       preferences: preferences.map(({ id, version, data }) => ({ id, version, preferences: data })),

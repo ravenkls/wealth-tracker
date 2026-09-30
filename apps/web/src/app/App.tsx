@@ -12,6 +12,9 @@ const AccountsPage = lazy(() =>
 const BudgetPage = lazy(() =>
   import("../features/budget/BudgetPage").then((module) => ({ default: module.BudgetPage })),
 );
+const AnalysisPage = lazy(() =>
+  import("../features/analysis/AnalysisPage").then((module) => ({ default: module.AnalysisPage })),
+);
 const HistoryPage = lazy(() =>
   import("../features/history/HistoryPage").then((module) => ({ default: module.HistoryPage })),
 );
@@ -172,6 +175,16 @@ function LivePages({
         <Route path="/accounts" element={<AccountsPage data={data} />} />
         <Route path="/budget" element={<BudgetPage data={data} />} />
         <Route path="/history" element={<HistoryPage data={data} />} />
+        <Route
+          path="/analysis"
+          element={
+            data.bankConnections.some((connection) => connection.provider === "endute") ? (
+              <AnalysisPage data={data} />
+            ) : (
+              <Navigate to="/accounts" replace />
+            )
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {recordOpen && (

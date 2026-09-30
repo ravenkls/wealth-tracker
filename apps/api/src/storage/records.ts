@@ -1,3 +1,4 @@
+import { EnduteTransactionStore } from "./endute-transactions";
 import type { DynamoDBDocumentClient, TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { recordEntity, monzoAttemptEntity } from "./entities";
@@ -86,6 +87,7 @@ interface SaveReceipt {
   snapshot: Snapshot;
 }
 export class WealthStore {
+  readonly transactions: EnduteTransactionStore;
   readonly banks: Records<BankConnection>;
   readonly monzoAttempts: ReturnType<typeof monzoAttemptEntity>;
   readonly appearance: Records<{ mode: "dark" | "light" }>;
@@ -101,6 +103,7 @@ export class WealthStore {
     private readonly client: DynamoDBDocumentClient,
     table: string,
   ) {
+    this.transactions = new EnduteTransactionStore(client, table);
     this.banks = new Records("bankConnection", client, table);
     this.monzoAttempts = monzoAttemptEntity(client, table);
     this.appearance = new Records("appearance", client, table);
@@ -144,12 +147,30 @@ export class WealthStore {
               .params();
       return { Put: params as TransactionPut };
     }
-    const writes = await Promise.all([
+    const writes: NonNullable<TransactWriteCommandInput["TransactItems"]> = await Promise.all([
       put(this.banks, bank.id, bank, expectedVersion),
       ...accounts.map((account) =>
         put(this.accounts, account.data.id, account.data, account.expectedVersion),
       ),
     ]);
+    if (bank.provider === "endute") {
+      const key = { pk: "ENDUTE_JOBS", sk: owner };
+      writes.push(
+        bank.disconnected
+          ? {
+              Delete: {
+                TableName: this.banks.entity.get({ owner, id: bank.id }).params().TableName!,
+                Key: key,
+              },
+            }
+          : {
+              Put: {
+                TableName: this.banks.entity.get({ owner, id: bank.id }).params().TableName!,
+                Item: { ...key, owner },
+              },
+            },
+      );
+    }
     try {
       await this.client.send(new TransactWriteCommand({ TransactItems: writes }));
     } catch (error) {

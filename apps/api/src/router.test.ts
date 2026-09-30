@@ -140,3 +140,27 @@ it("protects Endute mutations and accepts only the single-key credential contrac
     code: "TOO_MANY_REQUESTS",
   });
 });
+
+it("guards Analysis reads and refreshes and keeps pagination scoped to the signed-in user", async () => {
+  const analysis = {
+    status:
+      vi.fn<import("./application/endute-transactions").EnduteTransactionsService["status"]>(),
+    list: vi.fn<import("./application/endute-transactions").EnduteTransactionsService["list"]>(),
+    sync: vi.fn<import("./application/endute-transactions").EnduteTransactionsService["sync"]>(),
+  };
+  const app = createRouter({ ...mockServices(), analysis, isDatabaseReady: async () => true });
+  const user = { userId: "owner", profile: { name: "User", email: "user@example.test" } };
+  await expect(
+    app.createCaller({ user: null, trustedOrigin: true }).analysis.transactions({}),
+  ).rejects.toThrow("Sign in");
+  await expect(app.createCaller({ user, trustedOrigin: false }).analysis.refresh()).rejects.toThrow(
+    "origin",
+  );
+  expect(analysis.list).not.toHaveBeenCalled();
+  expect(analysis.sync).not.toHaveBeenCalled();
+  const caller = app.createCaller({ user, trustedOrigin: true });
+  await caller.analysis.transactions({ cursor: "page" });
+  expect(analysis.list).toHaveBeenCalledWith("owner", "page");
+  await caller.analysis.refresh();
+  expect(analysis.sync).toHaveBeenCalledWith("owner");
+});

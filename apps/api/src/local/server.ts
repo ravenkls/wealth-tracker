@@ -1,3 +1,5 @@
+import { runEnduteSchedule, type EnduteSyncEvent } from "../application/endute-scheduler";
+import { EnduteTransactionsService } from "../application/endute-transactions";
 import { EnduteService } from "../application/endute-service";
 import { EnduteClient } from "../integrations/endute";
 import { MonzoService } from "../application/monzo-service";
@@ -45,11 +47,14 @@ const wealthStore = new WealthStore(documents, config.tableName);
 const cipher = new LocalCredentialCipher(config.encryptionKey);
 const provider = new Trading212Client();
 const monzo = new MonzoService(wealthStore, new MonzoClient(), cipher, config.appOrigin);
-const endute = new EnduteService(wealthStore, new EnduteClient(), cipher);
+const enduteClient = new EnduteClient();
+const analysis = new EnduteTransactionsService(wealthStore, enduteClient, cipher);
+const endute = new EnduteService(wealthStore, enduteClient, cipher);
 const handleAuth = createAuthHandler(auth, config.appOrigin, monzo);
 const appRouter = createRouter({
   monzo,
   endute,
+  analysis,
   wealth: new WealthService(wealthStore),
   connections: new ConnectionService(wealthStore, provider, cipher),
   snapshots: new SnapshotService(wealthStore, provider, cipher, undefined, monzo, endute),
@@ -109,3 +114,21 @@ function shutdown() {
 }
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
+
+let syncingTransactions = false;
+async function syncLocalTransactions() {
+  if (syncingTransactions) return;
+  syncingTransactions = true;
+  const run = async (event: EnduteSyncEvent): Promise<void> => {
+    await runEnduteSchedule(event, wealthStore.transactions, analysis, run);
+  };
+  try {
+    await run({ kind: "dispatch" });
+  } catch {
+    console.error("Scheduled transaction sync could not finish.");
+  } finally {
+    syncingTransactions = false;
+  }
+}
+setInterval(() => void syncLocalTransactions(), 300000).unref();
+void syncLocalTransactions();

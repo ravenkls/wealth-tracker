@@ -27,6 +27,45 @@ const connectionSchema = z.object({
   status: z.string(),
 });
 
+const transactionSchema = z.object({
+  id: z.uuid(),
+  booking_date: z.iso.date(),
+  value_date: z.iso.date().nullable(),
+  amount: z.string().regex(/^-?\d+(?:\.\d+)?$/),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  description: z.string(),
+  counterparty: z.string().nullable(),
+  enrichment: z.object({
+    merchant_name: z.string().nullable(),
+    category: z.string().nullable(),
+    brand_domain: z.string().nullable(),
+    confidence: z.number().finite().nullable(),
+    source: z.string().nullable(),
+  }),
+  sandbox: z.boolean(),
+  upstream_transaction_id: z.string().nullable().optional(),
+  merchant_category_code: z.string().nullable().optional(),
+  bank_transaction_code: z.string().nullable().optional(),
+  proprietary_bank_transaction_code: z.string().nullable().optional(),
+  end_to_end_id: z.string().nullable().optional(),
+  mandate_id: z.string().nullable().optional(),
+  entry_reference: z.string().nullable().optional(),
+});
+export type EnduteTransaction = z.infer<typeof transactionSchema>;
+export interface EnduteTransactionProvider {
+  accounts(
+    apiKey: string,
+    signal: AbortSignal,
+  ): Promise<{ id: string; name: string; institution: string }[]>;
+  transactions(
+    apiKey: string,
+    accountId: string,
+    path: string | undefined,
+    from: string | null,
+    signal: AbortSignal,
+  ): Promise<{ results: EnduteTransaction[]; next: string | null }>;
+}
+
 export interface EnduteValuation {
   balances: BankBalance[];
   fetchedAt: string;
@@ -47,7 +86,7 @@ export class EnduteError extends Error {
   }
 }
 
-export class EnduteClient implements EnduteProvider {
+export class EnduteClient implements EnduteProvider, EnduteTransactionProvider {
   constructor(
     private readonly fetcher: typeof fetch = fetch,
     private readonly now: () => Date = () => new Date(),
@@ -61,7 +100,7 @@ export class EnduteClient implements EnduteProvider {
   ): Promise<T> {
     let response: Response;
     try {
-      response = await this.fetcher(`https://api.endute.com/v1${path}`, {
+      response = await this.fetcher(new URL(path, "https://api.endute.com"), {
         method: "GET",
         redirect: "error",
         headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
@@ -108,11 +147,58 @@ export class EnduteClient implements EnduteProvider {
     return result.data;
   }
 
+  async accounts(apiKey: string, signal: AbortSignal) {
+    return this.get(
+      apiKey,
+      "/v1/accounts",
+      z.array(accountSchema.pick({ id: true, name: true, institution: true })),
+      signal,
+    );
+  }
+  async transactions(
+    apiKey: string,
+    accountId: string,
+    path: string | undefined,
+    from: string | null,
+    signal: AbortSignal,
+  ) {
+    if (!z.uuid().safeParse(accountId).success)
+      throw new EnduteError("Invalid Endute account identifier.");
+    const endpoint = `/v1/accounts/${accountId}/transactions`;
+    const initial = new URL(endpoint, "https://api.endute.com");
+    if (from) initial.searchParams.set("from", from);
+    const validate = (link: string) => {
+      let url: URL;
+      try {
+        url = new URL(link, "https://api.endute.com");
+      } catch {
+        throw new EnduteError("Endute returned an invalid transaction pagination link.");
+      }
+      if (
+        url.origin !== "https://api.endute.com" ||
+        url.pathname !== endpoint ||
+        url.username ||
+        url.password ||
+        url.hash
+      )
+        throw new EnduteError("Endute returned an invalid transaction pagination link.");
+      return url.toString();
+    };
+    const result = await this.get(
+      apiKey,
+      validate(path ?? initial.toString()),
+      z.object({ results: z.array(transactionSchema).max(100), next: z.string().nullable() }),
+      signal,
+    );
+    if (result.next) validate(result.next);
+    return result;
+  }
+
   async value(apiKey: string): Promise<EnduteValuation> {
     const signal = AbortSignal.timeout(20000);
     const [accounts, connections] = await Promise.all([
-      this.get(apiKey, "/accounts", z.array(accountSchema), signal),
-      this.get(apiKey, "/connections", z.array(connectionSchema), signal),
+      this.get(apiKey, "/v1/accounts", z.array(accountSchema), signal),
+      this.get(apiKey, "/v1/connections", z.array(connectionSchema), signal),
     ]);
     if (new Set(accounts.map((account) => account.id)).size !== accounts.length)
       throw new EnduteError("Endute Connect returned duplicate account identifiers.");
@@ -151,7 +237,7 @@ export class EnduteClient implements EnduteProvider {
         eligible.slice(offset, offset + 5).map(async (account) => {
           const value = await this.get(
             apiKey,
-            `/accounts/${account.id}/balances`,
+            `/v1/accounts/${account.id}/balances`,
             balanceSchema,
             signal,
           );

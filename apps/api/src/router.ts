@@ -1,3 +1,4 @@
+import type { EnduteTransactionsService } from "./application/endute-transactions";
 import type { EnduteService } from "./application/endute-service";
 import { EnduteError } from "./integrations/endute";
 import type { MonzoService } from "./application/monzo-service";
@@ -31,6 +32,7 @@ export interface ApiContext {
   readonly trustedOrigin: boolean;
 }
 export interface ApiDependencies {
+  readonly analysis?: Pick<EnduteTransactionsService, "status" | "list" | "sync">;
   readonly endute?: Pick<EnduteService, "connect" | "refresh" | "select" | "disconnect">;
   readonly monzo?: Pick<MonzoService, "start" | "refresh" | "select" | "disconnect">;
   readonly isDatabaseReady: () => Promise<boolean>;
@@ -93,6 +95,10 @@ async function run<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 export function createRouter(d: ApiDependencies) {
+  const analysis = () => {
+    if (!d.analysis) throw new InputError("Analysis is unavailable.");
+    return d.analysis;
+  };
   const endute = () => {
     if (!d.endute) throw new InputError("Endute tracking is unavailable.");
     return d.endute;
@@ -166,6 +172,15 @@ export function createRouter(d: ApiDependencies) {
       revisions: protectedProcedure
         .input(z.object({ month: period }))
         .query(({ ctx, input }) => run(() => d.wealth.revisions(ctx.user.userId, input.month))),
+    }),
+    analysis: router({
+      status: protectedProcedure.query(({ ctx }) => run(() => analysis().status(ctx.user.userId))),
+      transactions: protectedProcedure
+        .input(z.object({ cursor: z.string().max(2000).optional() }).default({}))
+        .query(({ ctx, input }) => run(() => analysis().list(ctx.user.userId, input.cursor))),
+      refresh: protectedProcedure.mutation(({ ctx }) =>
+        run(() => analysis().sync(ctx.user.userId)),
+      ),
     }),
     endute: router({
       connect: protectedProcedure

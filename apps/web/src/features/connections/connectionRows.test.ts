@@ -93,3 +93,53 @@ it("keeps Monzo manageable without tracked balances and avoids an extra total ro
     { id: "monzo:monzo", total: null },
   ]);
 });
+
+it("labels Endute rows and uses each account's cached balance timestamp", () => {
+  const bank: PublicBankConnection = {
+    id: "endute",
+    provider: "endute",
+    version: 1,
+    status: "ready",
+    error: "Renew bank consent",
+    valuation: {
+      fetchedAt: "2026-09-27T12:00:00Z",
+      balances: [
+        {
+          id: "card",
+          parentAccountId: "card",
+          name: "Card",
+          type: "account",
+          balance: pence(-100),
+          fetchedAt: "2026-09-28T12:00:00Z",
+        },
+      ],
+    },
+  };
+  expect(bankRows([bank], [])).toMatchObject([
+    { name: "Endute Connect", provider: "Endute Connect", total: null },
+  ]);
+  expect(
+    bankRows(
+      [bank],
+      [
+        {
+          id: "local",
+          name: "Card",
+          kind: "debt",
+          version: 1,
+          archived: false,
+          workingBalance: pence(-100),
+          automation: { provider: "endute", connectionId: "endute", externalId: "card" },
+        },
+      ],
+    ),
+  ).toMatchObject([
+    {
+      provider: "Endute Connect",
+      type: "Debt",
+      total: -100,
+      fetchedAt: "2026-09-28T12:00:00Z",
+      detail: "Renew bank consent",
+    },
+  ]);
+});

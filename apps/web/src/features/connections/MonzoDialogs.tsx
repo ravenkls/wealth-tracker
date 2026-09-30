@@ -102,7 +102,7 @@ export function ConnectMonzoDialog({
   );
 }
 
-export function ManageMonzoDialog({
+export function ManageBankDialog({
   connection,
   data,
   onClose,
@@ -113,6 +113,9 @@ export function ManageMonzoDialog({
   readonly onClose: () => void;
   readonly onReconnect: () => void;
 }) {
+  const isEndute = connection.provider === "endute";
+  const providerName = isEndute ? "Endute Connect" : "Monzo";
+  const bankApi = isEndute ? api.endute : api.monzo;
   const refresh = useRefresh();
   const [selection, setSelection] = useState<string[] | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -123,14 +126,14 @@ export function ManageMonzoDialog({
       .map((account) => account.automation!.externalId);
   const action = useMutation({
     mutationFn: async (kind: "refresh" | "select" | "disconnect") => {
-      if (kind === "refresh") return api.monzo.refresh.mutate({ id: connection.id });
+      if (kind === "refresh") return bankApi.refresh.mutate({ id: connection.id });
       if (kind === "select")
-        return api.monzo.select.mutate({
+        return bankApi.select.mutate({
           id: connection.id,
           externalIds: selected,
           expectedVersion: connection.version,
         });
-      return api.monzo.disconnect.mutate({
+      return bankApi.disconnect.mutate({
         id: connection.id,
         expectedVersion: connection.version,
       });
@@ -147,7 +150,9 @@ export function ManageMonzoDialog({
   const disabled = action.isPending;
   return (
     <Dialog open fullWidth maxWidth="sm" onClose={disabled ? undefined : onClose}>
-      <DialogTitle>{confirmDisconnect ? "Disconnect Monzo?" : "Manage Monzo"}</DialogTitle>
+      <DialogTitle>
+        {confirmDisconnect ? `Disconnect ${providerName}?` : `Manage ${providerName}`}
+      </DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           {action.isError && <Alert severity="error">{errorMessage(action.error)}</Alert>}
@@ -157,17 +162,33 @@ export function ManageMonzoDialog({
           {confirmDisconnect ? (
             <Typography>
               Tracked accounts will become manual accounts with their last fetched balances. Saved
-              history and budget destinations will remain. Stored Monzo credentials will be removed.
+              history and budget destinations will remain. Stored {providerName} credentials will be
+              removed.
+              {isEndute && " Your Endute key and bank connections remain active in its portal."}
             </Typography>
           ) : (
             <>
+              {isEndute && (
+                <Typography color="text.secondary" sx={{ fontSize: 13 }}>
+                  Balances come from Endute’s last bank sync. Refreshing here reads that cache.
+                  Manage bank connections and renew consent in the{" "}
+                  <Link
+                    href="https://connect.endute.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Endute portal
+                  </Link>
+                  .
+                </Typography>
+              )}
               {connection.status === "awaiting-approval" && (
                 <Alert severity="info">
                   Approve access in the Monzo app, then load your balances.
                 </Alert>
               )}
               {connection.status === "reconnect" ? (
-                <Button onClick={onReconnect}>Reconnect Monzo</Button>
+                <Button onClick={onReconnect}>Replace {providerName} credentials</Button>
               ) : (
                 <Button
                   sx={{ alignSelf: "flex-start" }}
@@ -180,8 +201,8 @@ export function ManageMonzoDialog({
               {connection.valuation && (
                 <>
                   <Typography color="text.secondary" sx={{ fontSize: 13 }}>
-                    Choose the balances to track. Archive any matching manual accounts to avoid
-                    counting them twice.
+                    Choose the balances to track. Archive matching manual accounts or deselect the
+                    same account in another service to avoid counting it twice.
                   </Typography>
                   <Box sx={{ borderTop: 1, borderColor: "divider" }}>
                     {connection.valuation.balances.map((balance) => (
@@ -222,8 +243,15 @@ export function ManageMonzoDialog({
                                   ? "Debt"
                                   : balance.type === "pot"
                                     ? "Pot"
-                                    : "Current account"}
+                                    : isEndute
+                                      ? "Cash account"
+                                      : "Current account"}
                               </Typography>
+                              {isEndute && balance.fetchedAt && (
+                                <Typography color="text.secondary" sx={{ fontSize: 12 }}>
+                                  Updated {new Date(balance.fetchedAt).toLocaleString("en-GB")}
+                                </Typography>
+                              )}
                             </Box>
                           }
                         />
@@ -236,10 +264,16 @@ export function ManageMonzoDialog({
                     ))}
                   </Box>
                   {connection.valuation.balances.length === 0 && (
-                    <Typography>No supported accounts or pots were returned by Monzo.</Typography>
+                    <Typography>
+                      No supported balances are available from {providerName}.
+                    </Typography>
                   )}
                   <Typography color="text.secondary" sx={{ fontSize: 12 }}>
-                    Updated {new Date(connection.valuation.fetchedAt).toLocaleString("en-GB")}.
+                    {!isEndute && (
+                      <>
+                        Updated {new Date(connection.valuation.fetchedAt).toLocaleString("en-GB")}.
+                      </>
+                    )}
                     Products not listed here can stay manually tracked.
                   </Typography>
                 </>

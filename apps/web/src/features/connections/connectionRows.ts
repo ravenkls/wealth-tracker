@@ -64,14 +64,15 @@ export function bankRows(
   accounts: ManualAccount[],
 ): ConnectionRow[] {
   return connections.flatMap((connection) => {
+    const provider = connection.provider === "endute" ? "Endute Connect" : "Monzo";
     const tracked = accounts.filter(
       (account) => !account.archived && account.automation?.connectionId === connection.id,
     );
     if (!tracked.length)
       return [
         {
-          id: `monzo:${connection.id}`,
-          name: "Monzo",
+          id: `${connection.provider}:${connection.id}`,
+          name: provider,
           detail:
             connection.error ??
             (connection.status === "awaiting-approval"
@@ -79,7 +80,7 @@ export function bankRows(
               : connection.status === "reconnect"
                 ? "Reconnect to load balances"
                 : "Choose accounts to track"),
-          provider: "Monzo",
+          provider,
           type: "Connection",
           total: null,
           fetchedAt: null,
@@ -94,10 +95,15 @@ export function bankRows(
         : connection.status === "reconnect"
           ? { detail: "Reconnect to load balances" }
           : {}),
-      provider: "Monzo",
+      provider,
       type: account.kind === "debt" ? "Debt" : "Cash",
       total: account.workingBalance ?? null,
-      fetchedAt: connection.valuation?.fetchedAt ?? null,
+      fetchedAt:
+        connection.valuation?.balances.find(
+          (balance) => balance.id === account.automation?.externalId,
+        )?.fetchedAt ??
+        connection.valuation?.fetchedAt ??
+        null,
       bankId: connection.id,
     }));
   });

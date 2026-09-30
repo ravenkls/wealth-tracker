@@ -111,3 +111,32 @@ it("protects appearance preferences and validates theme choices", async () => {
   });
   expect(services.wealth.saveAppearance).toHaveBeenCalledWith("theme-user", "light", 0);
 });
+
+it("protects Endute mutations and accepts only the single-key credential contract", async () => {
+  const endute = {
+    connect: vi.fn<import("./application/endute-service").EnduteService["connect"]>(),
+    refresh: vi.fn<import("./application/endute-service").EnduteService["refresh"]>(),
+    select: vi.fn<import("./application/endute-service").EnduteService["select"]>(),
+    disconnect: vi.fn<import("./application/endute-service").EnduteService["disconnect"]>(),
+  };
+  const app = createRouter({ ...mockServices(), endute, isDatabaseReady: async () => true });
+  const key = `edk_12345678_${"a".repeat(43)}`;
+  const input = { apiKey: key, expectedVersion: 0 };
+  const user = { userId: "user", profile: { name: "User", email: "user@example.test" } };
+  await expect(
+    app.createCaller({ user: null, trustedOrigin: true }).endute.connect(input),
+  ).rejects.toThrow("Sign in");
+  await expect(
+    app.createCaller({ user, trustedOrigin: false }).endute.connect(input),
+  ).rejects.toThrow("origin");
+  const caller = app.createCaller({ user, trustedOrigin: true });
+  await expect(caller.endute.connect({ ...input, apiKey: "bad" })).rejects.toThrow("valid Endute");
+  expect(endute.connect).not.toHaveBeenCalled();
+  await caller.endute.connect(input);
+  expect(endute.connect).toHaveBeenCalledWith("user", input);
+  const { EnduteError } = await import("./integrations/endute");
+  endute.refresh.mockRejectedValueOnce(new EnduteError("Wait before retrying", "throttled", 42));
+  await expect(caller.endute.refresh({ id: "endute" })).rejects.toMatchObject({
+    code: "TOO_MANY_REQUESTS",
+  });
+});

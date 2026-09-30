@@ -145,7 +145,12 @@ export class MonzoService {
   }
   private async connection(userId: string, id: string) {
     const record = await this.store.banks.get(userId, id);
-    if (!record || record.data.disconnected || !record.data.encryptedCredentials)
+    if (
+      !record ||
+      record.data.provider !== "monzo" ||
+      record.data.disconnected ||
+      !record.data.encryptedCredentials
+    )
       throw new InputError("Monzo connection not found.");
     return record.data;
   }

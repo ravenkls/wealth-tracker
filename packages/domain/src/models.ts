@@ -9,7 +9,7 @@ export interface ManualAccount {
   kind: ManualAccountKind;
   archived: boolean;
   workingBalance?: Pence | null;
-  automation?: { provider: "monzo"; connectionId: string; externalId: string };
+  automation?: { provider: "monzo" | "endute"; connectionId: string; externalId: string };
   version: number;
 }
 export interface BudgetLine {
@@ -81,7 +81,12 @@ export interface Snapshot {
     name: string;
     kind: ManualAccountKind;
     balance: Pence;
-    automation?: { provider: "monzo"; connectionId: string; externalId: string; fetchedAt: string };
+    automation?: {
+      provider: "monzo" | "endute";
+      connectionId: string;
+      externalId: string;
+      fetchedAt: string;
+    };
   }[];
   investments: SavedInvestment[];
   cash: Pence;
@@ -116,6 +121,8 @@ export interface Connection {
 }
 export type PublicConnection = Omit<Connection, "encryptedCredentials">;
 export interface BankBalance {
+  fetchedAt?: string;
+  sandbox?: boolean;
   id: string;
   parentAccountId: string;
   name: string;
@@ -125,7 +132,7 @@ export interface BankBalance {
 }
 export interface BankConnection {
   id: string;
-  provider: "monzo";
+  provider: "monzo" | "endute";
   version: number;
   encryptedCredentials: string | null;
   disconnected: boolean;
@@ -134,6 +141,7 @@ export interface BankConnection {
   error: string | null;
   leaseUntil: number;
   refreshInFlight: boolean;
+  retryAt?: string | null;
 }
 export type PublicBankConnection = Pick<
   BankConnection,

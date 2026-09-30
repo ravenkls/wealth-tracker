@@ -1,3 +1,4 @@
+import { ConnectEnduteDialog } from "./EnduteDialogs";
 import { useState } from "react";
 import {
   Alert,
@@ -12,7 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import { formatGbp } from "@wealth/domain";
-import { ConnectMonzoDialog, ManageMonzoDialog } from "./MonzoDialogs";
+import { ConnectMonzoDialog, ManageBankDialog } from "./MonzoDialogs";
 import { ConnectTradingDialog, ManageTradingDialog } from "./TradingDialogs";
 import { bankRows, tradingRows, type ConnectionRow } from "./connectionRows";
 import { moneyGroupTotal } from "../../components/table/groupTotals";
@@ -20,6 +21,7 @@ import { DataTable } from "../../components/table/DataTable";
 import type { AppData } from "../../lib/data";
 
 export function ConnectionsPanel({ data }: { readonly data: AppData }) {
+  const [enduteConnect, setEnduteConnect] = useState(false);
   const [open, setOpen] = useState(false);
   const [connectAnchor, setConnectAnchor] = useState<HTMLElement | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: ConnectionRow } | null>(null);
@@ -206,6 +208,14 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
         <MenuItem
           onClick={() => {
             setConnectAnchor(null);
+            setEnduteConnect(true);
+          }}
+        >
+          Connect Endute Connect
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setConnectAnchor(null);
             setOpen(true);
           }}
         >
@@ -225,7 +235,7 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
             setRowMenu(null);
           }}
         >
-          {rowMenu?.row.trading ? "Manage Trading 212" : "Manage Monzo"}
+          {`Manage ${rowMenu?.row.provider ?? "connection"}`}
         </MenuItem>
       </Menu>
       {monzoConnect !== null && (
@@ -234,15 +244,16 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
           onClose={() => setMonzoConnect(null)}
         />
       )}
-      {bank && monzoConnect === null && (
-        <ManageMonzoDialog
+      {bank && monzoConnect === null && !enduteConnect && (
+        <ManageBankDialog
           key={bank.id}
           connection={bank}
           data={data}
           onClose={closeMonzo}
           onReconnect={() => {
             closeMonzo();
-            setMonzoConnect(bank.id);
+            if (bank.provider === "endute") setEnduteConnect(true);
+            else setMonzoConnect(bank.id);
           }}
         />
       )}
@@ -251,6 +262,19 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
           key={trading.id}
           connection={trading}
           onClose={() => setTradingId(null)}
+        />
+      )}
+      {enduteConnect && (
+        <ConnectEnduteDialog
+          expectedVersion={
+            data.bankConnections.find((connection) => connection.provider === "endute")?.version ??
+            0
+          }
+          onClose={() => setEnduteConnect(false)}
+          onConnected={() => {
+            setEnduteConnect(false);
+            setMonzoId("endute");
+          }}
         />
       )}
       {open && <ConnectTradingDialog onClose={() => setOpen(false)} />}

@@ -1,3 +1,5 @@
+import type { EnduteService } from "./application/endute-service";
+import { EnduteError } from "./integrations/endute";
 import type { MonzoService } from "./application/monzo-service";
 import { MonzoError } from "./integrations/monzo";
 import { initTRPC, TRPCError } from "@trpc/server";
@@ -29,6 +31,7 @@ export interface ApiContext {
   readonly trustedOrigin: boolean;
 }
 export interface ApiDependencies {
+  readonly endute?: Pick<EnduteService, "connect" | "refresh" | "select" | "disconnect">;
   readonly monzo?: Pick<MonzoService, "start" | "refresh" | "select" | "disconnect">;
   readonly isDatabaseReady: () => Promise<boolean>;
   readonly wealth: Pick<
@@ -78,7 +81,7 @@ async function run<T>(work: () => Promise<T>): Promise<T> {
         code: error.kind === "rate-limit" ? "TOO_MANY_REQUESTS" : "BAD_GATEWAY",
         message: error.message,
       });
-    if (error instanceof Trading212Error)
+    if (error instanceof Trading212Error || error instanceof EnduteError)
       throw new TRPCError({
         code: error.retryAfterSeconds ? "TOO_MANY_REQUESTS" : "BAD_GATEWAY",
         message: error.message,
@@ -90,6 +93,10 @@ async function run<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 export function createRouter(d: ApiDependencies) {
+  const endute = () => {
+    if (!d.endute) throw new InputError("Endute tracking is unavailable.");
+    return d.endute;
+  };
   const monzo = () => {
     if (!d.monzo) throw new InputError("Monzo tracking is unavailable.");
     return d.monzo;
@@ -159,6 +166,36 @@ export function createRouter(d: ApiDependencies) {
       revisions: protectedProcedure
         .input(z.object({ month: period }))
         .query(({ ctx, input }) => run(() => d.wealth.revisions(ctx.user.userId, input.month))),
+    }),
+    endute: router({
+      connect: protectedProcedure
+        .input(
+          z.object({
+            apiKey: z
+              .string()
+              .trim()
+              .regex(/^edk_[A-Za-z0-9_-]{8}_[A-Za-z0-9_-]{43}$/, "Enter a valid Endute API key."),
+            expectedVersion,
+          }),
+        )
+        .mutation(({ ctx, input }) => run(() => endute().connect(ctx.user.userId, input))),
+      refresh: protectedProcedure
+        .input(z.object({ id: identifier }))
+        .mutation(({ ctx, input }) => run(() => endute().refresh(ctx.user.userId, input.id))),
+      select: protectedProcedure
+        .input(
+          z.object({ id: identifier, externalIds: z.array(identifier).max(80), expectedVersion }),
+        )
+        .mutation(({ ctx, input }) =>
+          run(() =>
+            endute().select(ctx.user.userId, input.id, input.externalIds, input.expectedVersion),
+          ),
+        ),
+      disconnect: protectedProcedure
+        .input(z.object({ id: identifier, expectedVersion }))
+        .mutation(({ ctx, input }) =>
+          run(() => endute().disconnect(ctx.user.userId, input.id, input.expectedVersion)),
+        ),
     }),
     monzo: router({
       start: protectedProcedure

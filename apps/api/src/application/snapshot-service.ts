@@ -1,3 +1,4 @@
+import type { EnduteService } from "./endute-service";
 import type { MonzoService } from "./monzo-service";
 import type { InlineCorrectionInput } from "./schemas";
 import { calculateNetWorth, calculateRecordedNetWorth, month } from "@wealth/domain";
@@ -44,6 +45,7 @@ export class SnapshotService {
     private readonly cipher: CredentialCipher,
     private readonly now: () => Date = () => new Date(),
     private readonly banks?: Pick<MonzoService, "snapshotBalances">,
+    private readonly endute?: Pick<EnduteService, "snapshotBalances">,
   ) {}
   private async existing(
     userId: string,
@@ -102,13 +104,28 @@ export class SnapshotService {
         balance: row.balance,
       };
     });
-    if (accounts.some((account) => account.automation) && !this.banks)
+    if (accounts.some((account) => account.automation?.provider === "monzo") && !this.banks)
       throw new InputError("Monzo tracking is unavailable.");
+    if (accounts.some((account) => account.automation?.provider === "endute") && !this.endute)
+      throw new InputError("Endute tracking is unavailable.");
     const connections = (await this.store.connections.list(userId))
       .map((record) => record.data)
       .filter((connection) => !connection.disconnected);
     const [automaticBalances, investments] = await Promise.all([
-      this.banks ? this.banks.snapshotBalances(userId, accounts) : Promise.resolve([]),
+      Promise.all([
+        this.banks
+          ? this.banks.snapshotBalances(
+              userId,
+              accounts.filter((account) => account.automation?.provider === "monzo"),
+            )
+          : Promise.resolve([]),
+        this.endute
+          ? this.endute.snapshotBalances(
+              userId,
+              accounts.filter((account) => account.automation?.provider === "endute"),
+            )
+          : Promise.resolve([]),
+      ]).then((groups) => groups.flat()),
       Promise.all(
         connections.map(async (connection) => {
           const credentials = JSON.parse(

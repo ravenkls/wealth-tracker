@@ -23,7 +23,7 @@ Then run:
 pnpm dev
 ```
 
-Open **[http://localhost:5173](http://localhost:5173)** and sign in with Google. There is no development authentication bypass. Add cash/pension accounts under Accounts; optionally connect Trading 212 with read-only account, positions, transactions and dividend permissions. Invest and Stocks ISA are supported. The account must report GBP.
+Open **[http://localhost:5173](http://localhost:5173)** and sign in with Google. There is no development authentication bypass. Add cash/pension accounts under Accounts; optionally connect Trading 212 with read-only account, positions, transactions and dividend permissions. Invest and Stocks ISA are supported. The account must report GBP. Endute Connect can also track GBP bank accounts using a single API key; see [Endute setup and behaviour](docs/endute-integration.md).
 
 React and the API run on the host. Only DynamoDB runs in Docker, bound to loopback with a persistent named volume. `dev:setup` creates `.env` if missing and initialises or validates the single table; re-running it preserves existing data and configuration. The local API rejects production mode and non-loopback database endpoints.
 

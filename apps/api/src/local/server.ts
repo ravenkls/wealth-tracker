@@ -1,3 +1,5 @@
+import { EnduteService } from "../application/endute-service";
+import { EnduteClient } from "../integrations/endute";
 import { MonzoService } from "../application/monzo-service";
 import { MonzoClient } from "../integrations/monzo";
 import { hash } from "../auth/tokens";
@@ -43,12 +45,14 @@ const wealthStore = new WealthStore(documents, config.tableName);
 const cipher = new LocalCredentialCipher(config.encryptionKey);
 const provider = new Trading212Client();
 const monzo = new MonzoService(wealthStore, new MonzoClient(), cipher, config.appOrigin);
+const endute = new EnduteService(wealthStore, new EnduteClient(), cipher);
 const handleAuth = createAuthHandler(auth, config.appOrigin, monzo);
 const appRouter = createRouter({
   monzo,
+  endute,
   wealth: new WealthService(wealthStore),
   connections: new ConnectionService(wealthStore, provider, cipher),
-  snapshots: new SnapshotService(wealthStore, provider, cipher, undefined, monzo),
+  snapshots: new SnapshotService(wealthStore, provider, cipher, undefined, monzo, endute),
   isDatabaseReady: () => isTableReady(database, config.tableName),
 });
 const handleApi = createHTTPHandler({

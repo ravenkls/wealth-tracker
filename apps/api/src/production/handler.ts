@@ -1,3 +1,5 @@
+import { EnduteService } from "../application/endute-service";
+import { EnduteClient } from "../integrations/endute";
 import { MonzoService } from "../application/monzo-service";
 import { MonzoClient } from "../integrations/monzo";
 import { hash } from "../auth/tokens";
@@ -55,11 +57,13 @@ async function initialize() {
   const provider = new Trading212Client();
   const cipher = new KmsCredentialCipher(new KMSClient({}), config.CREDENTIAL_KEY_ARN);
   const monzo = new MonzoService(store, new MonzoClient(), cipher, config.APP_ORIGIN);
+  const endute = new EnduteService(store, new EnduteClient(), cipher);
   const router = createRouter({
     monzo,
+    endute,
     wealth: new WealthService(store),
     connections: new ConnectionService(store, provider, cipher),
-    snapshots: new SnapshotService(store, provider, cipher, undefined, monzo),
+    snapshots: new SnapshotService(store, provider, cipher, undefined, monzo, endute),
     isDatabaseReady: async () => {
       try {
         return (

@@ -1309,3 +1309,195 @@ it("allows investment and pension savings targets while protecting expense kinds
     2,
   );
 });
+
+async function enduteFixture(owner = randomUUID()) {
+  const { EnduteService } = await import("../application/endute-service");
+  const { LocalCredentialCipher } = await import("../auth/encryption");
+  const { vi } = await import("vitest");
+  const cipher = new LocalCredentialCipher(Buffer.alloc(32, 5).toString("base64"));
+  const value: import("../integrations/endute").EnduteValuation = {
+    balances: [
+      {
+        id: "bank",
+        parentAccountId: "bank",
+        name: "Savings",
+        type: "account",
+        kind: "cash",
+        balance: pence(120000),
+        fetchedAt: "2026-09-27T10:00:00Z",
+      },
+      {
+        id: "card",
+        parentAccountId: "card",
+        name: "Credit card",
+        type: "account",
+        kind: "debt",
+        balance: pence(-10000),
+        fetchedAt: "2026-09-28T09:00:00Z",
+      },
+    ],
+    accountIds: ["bank", "card"],
+    warnings: [],
+    fetchedAt: "2026-09-27T10:00:00Z",
+  };
+  const provider = { value: vi.fn(async () => structuredClone(value)) };
+  const service = new EnduteService(
+    store,
+    provider,
+    cipher,
+    () => new Date("2026-09-28T12:00:00Z"),
+  );
+  const bank = await service.connect(owner, { apiKey: "private-endute-key", expectedVersion: 0 });
+  return { owner, service, provider, cipher, value, bank };
+}
+
+it("encrypts and isolates Endute keys, rotates in place, and reconnects after disconnection", async () => {
+  const f = await enduteFixture();
+  expect(f.bank).not.toHaveProperty("encryptedCredentials");
+  const stored = (await store.banks.get(f.owner, "endute"))!;
+  expect(stored.data.encryptedCredentials).not.toContain("private-endute-key");
+  expect(
+    await f.cipher.decrypt(stored.data.encryptedCredentials!, `${f.owner}/endute/endute`),
+  ).toContain("private-endute-key");
+  await expect(f.service.refresh("another-user", "endute")).rejects.toThrow("not found");
+  await f.service.select(f.owner, "endute", ["bank", "card"], f.bank.version);
+  const original = await store.accounts.list(f.owner);
+  const rotated = await f.service.connect(f.owner, {
+    apiKey: "replacement-key",
+    expectedVersion: 2,
+  });
+  expect((await store.accounts.list(f.owner)).map((record) => record.id).sort()).toEqual(
+    original.map((record) => record.id).sort(),
+  );
+  await f.service.refresh(f.owner, "endute");
+  expect(f.provider.value).toHaveBeenLastCalledWith("replacement-key");
+  await expect(f.service.disconnect(f.owner, "endute", rotated.version)).rejects.toThrow("changed");
+  const latest = (await store.banks.get(f.owner, "endute"))!;
+  await f.service.disconnect(f.owner, "endute", latest.version);
+  expect((await store.banks.get(f.owner, "endute"))?.data.encryptedCredentials).toBeNull();
+  for (const record of await store.accounts.list(f.owner)) {
+    expect(record.data.automation).toBeUndefined();
+    expect(record.data.workingBalance).toBe(
+      original.find((old) => old.id === record.id)!.data.workingBalance,
+    );
+  }
+  expect((await f.service.connect(f.owner, { apiKey: "new-key", expectedVersion: 0 })).status).toBe(
+    "ready",
+  );
+});
+
+it("preserves Endute identity on deselection, rejects changed ownership and cross-provider requests", async () => {
+  const f = await enduteFixture();
+  await f.service.select(f.owner, "endute", ["bank"], f.bank.version);
+  const account = (await store.accounts.list(f.owner))[0]!;
+  await f.service.select(f.owner, "endute", [], 2);
+  expect((await store.accounts.get(f.owner, account.id))?.data.archived).toBe(true);
+  await f.service.select(f.owner, "endute", ["bank"], 3);
+  expect((await store.accounts.get(f.owner, account.id))?.data.archived).toBe(false);
+  f.provider.value.mockResolvedValueOnce({ ...f.value, accountIds: ["someone-else"] });
+  await expect(
+    f.service.connect(f.owner, { apiKey: "wrong-owner", expectedVersion: 4 }),
+  ).rejects.toThrow("does not expose");
+  const monzo = await monzoFixture(f.owner);
+  await expect(monzo.service.refresh(f.owner, "endute")).rejects.toThrow("not found");
+  const monzoId = await monzo.service.complete(f.owner, "session", monzo.state, "code");
+  await expect(f.service.disconnect(f.owner, monzoId, 1)).rejects.toThrow("not found");
+});
+
+it("retains balances on incomplete Endute data and archives only truly absent accounts", async () => {
+  const f = await enduteFixture();
+  await f.service.select(f.owner, "endute", ["bank"], 1);
+  const original = (await store.accounts.list(f.owner))[0]!;
+  f.provider.value.mockResolvedValueOnce({ ...f.value, balances: [] });
+  await expect(f.service.refresh(f.owner, "endute")).rejects.toThrow("no supported GBP balance");
+  expect((await store.accounts.get(f.owner, original.id))?.data).toEqual(original.data);
+  f.provider.value.mockResolvedValueOnce({ ...f.value, balances: [], accountIds: [] });
+  await f.service.refresh(f.owner, "endute");
+  expect((await store.accounts.get(f.owner, original.id))?.data).toMatchObject({
+    archived: true,
+    workingBalance: 120000,
+  });
+});
+
+it("persists Endute throttling and prevents concurrent refresh or disconnect", async () => {
+  const f = await enduteFixture();
+  const { EnduteError } = await import("../integrations/endute");
+  f.provider.value.mockRejectedValueOnce(new EnduteError("Rate limited", "throttled", 42));
+  await expect(f.service.refresh(f.owner, "endute")).rejects.toThrow("Rate limited");
+  expect((await store.banks.get(f.owner, "endute"))?.data.retryAt).toBe("2026-09-28T12:00:42.000Z");
+  const calls = f.provider.value.mock.calls.length;
+  await expect(f.service.refresh(f.owner, "endute")).rejects.toThrow("Wait until");
+  expect(f.provider.value).toHaveBeenCalledTimes(calls);
+  const stored = (await store.banks.get(f.owner, "endute"))!;
+  await store.banks.save(
+    f.owner,
+    "endute",
+    {
+      ...stored.data,
+      version: stored.version + 1,
+      retryAt: null,
+      leaseUntil: Date.parse("2026-09-28T12:05:00Z"),
+    },
+    stored.version,
+  );
+  await expect(f.service.refresh(f.owner, "endute")).rejects.toThrow("being refreshed");
+  await expect(f.service.disconnect(f.owner, "endute", stored.version + 1)).rejects.toThrow("Wait");
+});
+
+it("records mixed bank snapshots with per-account Endute timestamps and blocks failed reads", async () => {
+  const f = await enduteFixture();
+  await f.service.select(f.owner, "endute", ["bank", "card"], 1);
+  const monzo = await monzoFixture(f.owner);
+  const monzoId = await monzo.service.complete(f.owner, "session", monzo.state, "code");
+  const bank = await monzo.service.refresh(f.owner, monzoId);
+  await monzo.service.select(f.owner, monzoId, ["pot"], bank.version);
+  const { SnapshotService } = await import("../application/snapshot-service");
+  const snapshots = new SnapshotService(
+    store,
+    {
+      value: async () => {
+        throw new Error("Unused");
+      },
+      transactions: async () => ({ events: [], nextPage: null }),
+      dividends: async () => ({ events: [], nextPage: null }),
+    },
+    f.cipher,
+    () => new Date("2026-09-28T12:00:00Z"),
+    monzo.service,
+    f.service,
+  );
+  const input = {
+    month: month("2026-09"),
+    expectedVersion: 0,
+    operationId: randomUUID(),
+    replaceConfirmed: false,
+    notes: "",
+    balances: [],
+    periodIncome: null,
+    cashPensionContributions: null,
+  };
+  f.provider.value.mockRejectedValueOnce(new Error("Unavailable"));
+  await expect(snapshots.record(f.owner, input)).rejects.toThrow("Unavailable");
+  expect(await store.snapshots.list(f.owner)).toHaveLength(0);
+  // Promise.all's other bank refresh must finish before retrying the failed snapshot.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if ((await store.banks.get(f.owner, monzoId))!.data.leaseUntil === 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const saved = await snapshots.record(f.owner, input);
+  expect(saved.total).toBe(130000);
+  expect(saved.balances.find((value) => value.automation?.externalId === "card")).toMatchObject({
+    kind: "debt",
+    balance: -10000,
+    automation: { provider: "endute", fetchedAt: "2026-09-28T09:00:00Z" },
+  });
+  expect(
+    saved.balances.find((value) => value.automation?.externalId === "bank")?.automation?.fetchedAt,
+  ).toBe("2026-09-27T10:00:00Z");
+  f.provider.value.mockResolvedValue({
+    ...f.value,
+    balances: f.value.balances.map((value) => ({ ...value, balance: pence(0) })),
+  });
+  await f.service.refresh(f.owner, "endute");
+  expect((await store.snapshots.get(f.owner, input.month))?.data.total).toBe(130000);
+});

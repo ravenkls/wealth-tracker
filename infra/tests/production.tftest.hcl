@@ -23,6 +23,10 @@ run "production_security" {
     error_message = "Endute transactions must sync every five minutes."
   }
   assert {
+    condition     = aws_lambda_function.api.environment[0].variables.GEMINI_MODEL == "gemini-3.1-flash-lite" && aws_secretsmanager_secret.gemini.name == "wealth-tracker/production/gemini"
+    error_message = "Gemini must use the configured Flash-Lite model and a server-managed secret."
+  }
+  assert {
     condition     = aws_lambda_function.endute_sync.handler == "index.syncHandler" && aws_lambda_function.endute_sync.timeout == 120
     error_message = "Transaction sync must use its private worker handler with a bounded timeout."
   }

@@ -31,3 +31,45 @@ it("syncs only the dispatched owner and rejects malformed jobs", async () => {
     "owner",
   );
 });
+
+it("dispatches the independent category registry so disconnected users can finish existing batches", async () => {
+  const jobs = vi.fn<EnduteTransactionStore["jobs"]>(async () => ({ owners: [], next: undefined }));
+  const sync = vi.fn<EnduteTransactionsService["sync"]>(async () => null);
+  const enqueue = vi.fn<(event: EnduteSyncEvent) => Promise<void>>(async () => {});
+  const categorise = vi.fn<(owner: string) => Promise<void>>(async () => {});
+  const categoryJobs = vi.fn<() => Promise<{ owners: string[]; next: string }>>(async () => ({
+    owners: ["disconnected-user"],
+    next: "disconnected-user",
+  }));
+  await runEnduteSchedule(
+    { kind: "dispatch" },
+    { jobs },
+    { sync },
+    enqueue,
+    categorise,
+    categoryJobs,
+  );
+  expect(enqueue).toHaveBeenCalledWith({ kind: "categorise-dispatch" });
+  enqueue.mockClear();
+  await runEnduteSchedule(
+    { kind: "categorise-dispatch" },
+    { jobs },
+    { sync },
+    enqueue,
+    categorise,
+    categoryJobs,
+  );
+  expect(enqueue.mock.calls).toEqual([
+    [{ kind: "categorise", owner: "disconnected-user" }],
+    [{ kind: "categorise-dispatch", after: "disconnected-user" }],
+  ]);
+  await runEnduteSchedule(
+    { kind: "categorise", owner: "disconnected-user" },
+    { jobs },
+    { sync },
+    enqueue,
+    categorise,
+    categoryJobs,
+  );
+  expect(categorise).toHaveBeenCalledWith("disconnected-user");
+});

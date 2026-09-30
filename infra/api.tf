@@ -13,7 +13,7 @@ resource "aws_iam_role_policy" "lambda" {
     { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.lambda.arn}:*" },
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:BatchGetItem", "dynamodb:BatchWriteItem", "dynamodb:DescribeTable", "dynamodb:ConditionCheckItem"], Resource = aws_dynamodb_table.app.arn },
     { Effect = "Allow", Action = ["kms:Encrypt", "kms:Decrypt"], Resource = aws_kms_key.credentials.arn, Condition = { Null = { "kms:EncryptionContext:account" = "false" } } },
-    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = aws_secretsmanager_secret.google.arn }
+    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = [aws_secretsmanager_secret.google.arn, aws_secretsmanager_secret.gemini.arn] }
   ] })
 }
 resource "aws_lambda_function" "api" {
@@ -33,6 +33,8 @@ resource "aws_lambda_function" "api" {
       DYNAMODB_TABLE     = aws_dynamodb_table.app.name
       CREDENTIAL_KEY_ARN = aws_kms_key.credentials.arn
       GOOGLE_SECRET_ARN  = aws_secretsmanager_secret.google.arn
+      GEMINI_SECRET_ARN  = aws_secretsmanager_secret.gemini.arn
+      GEMINI_MODEL       = "gemini-3.1-flash-lite"
     }
   }
   depends_on = [aws_iam_role_policy.lambda, aws_cloudwatch_log_group.lambda]

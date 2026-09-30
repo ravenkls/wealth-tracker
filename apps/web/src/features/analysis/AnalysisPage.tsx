@@ -1,3 +1,5 @@
+import { CategoriesPanel, useCategories } from "./CategoriesPanel";
+import { EditableCell } from "../../components/table/EditableCell";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
@@ -8,6 +10,7 @@ import { errorMessage, type AppData } from "../../lib/data";
 
 export function AnalysisPage({ data }: { readonly data: AppData }) {
   const client = useQueryClient();
+  const categories = useCategories();
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const cursor = cursors[cursors.length - 1];
   const status = useQuery({
@@ -32,7 +35,12 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
   });
   const retryAt = status.data?.retryAt;
   const waiting = status.data?.retrying ?? false;
-  const rows = transactions.data?.rows ?? [];
+  const rows = (transactions.data?.rows ?? []).map((row) => ({
+    ...row,
+    customCategory: "customCategory" in row ? row.customCategory : null,
+    classification: "classification" in row ? row.classification : null,
+    categorisationStatus: "categorisationStatus" in row ? row.categorisationStatus : "pending",
+  }));
   return (
     <>
       <PageHeading title="Analysis">
@@ -86,6 +94,7 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
           </Alert>
         )}
       </Stack>
+      <CategoriesPanel />
       {transactions.isPending ? (
         <CircularProgress aria-label="Loading transactions" />
       ) : (
@@ -128,6 +137,49 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
             {
               id: "category",
               label: "Category",
+              value: (row) => row.customCategory,
+              sortable: false,
+              render: (row) => (
+                <Box sx={{ minWidth: 180 }}>
+                  <EditableCell
+                    value={row.classification?.categoryId ?? ""}
+                    label={`Category for ${row.description}`}
+                    disabled={!categories.data?.version}
+                    options={[
+                      { value: "", label: "Uncategorised" },
+                      ...(categories.data?.categories ?? []).map((c) => ({
+                        value: c.id,
+                        label: c.name,
+                      })),
+                    ]}
+                    onCommit={async (categoryId) => {
+                      await api.categories.assign.mutate({
+                        accountId: row.accountId,
+                        transactionId: row.id,
+                        categoryId: categoryId || null,
+                        expectedVersion: row.classification?.version ?? 0,
+                      });
+                      await Promise.all([
+                        client.invalidateQueries({ queryKey: ["endute-transactions"] }),
+                        client.invalidateQueries({ queryKey: ["purchase-categories"] }),
+                      ]);
+                    }}
+                  />
+                  <Typography sx={{ fontSize: 11 }} color="text.secondary">
+                    {row.categorisationStatus === "manual"
+                      ? "Manually assigned"
+                      : row.categorisationStatus === "pending"
+                        ? "Categorisation pending"
+                        : row.categorisationStatus === "failed"
+                          ? "Failed · recategorise to retry"
+                          : "Gemini"}
+                  </Typography>
+                </Box>
+              ),
+            },
+            {
+              id: "enduteCategory",
+              label: "Endute category",
               value: (row) => row.enrichment.category,
               sortable: false,
             },

@@ -1696,3 +1696,187 @@ it("rejects imports from expired leases and keys rotated during a transaction re
   expect((await f.transactions.sync(f.owner))?.error).toContain("could not finish");
   expect((await store.transactions.list(f.owner)).rows).toHaveLength(0);
 });
+
+it("categorises queued imports, preserves manual choices and rejects stale batch results", async () => {
+  const { CategorisationService } = await import("../application/categorisation");
+  const { emptySync } = await import("./endute-transactions");
+  const { GeminiError } = await import("../integrations/gemini");
+  const owner = `category-${randomUUID()}`,
+    accountId = randomUUID(),
+    transactionId = randomUUID();
+  const category = { id: randomUUID(), name: "Groceries", description: "Supermarkets" };
+  await store.banks.save(
+    owner,
+    "endute",
+    {
+      id: "endute",
+      provider: "endute",
+      name: "Endute",
+      encryptedCredentials: "encrypted",
+      disconnected: false,
+      version: 1,
+      accountIds: [],
+      selectedExternalIds: [],
+      lastRefreshedAt: null,
+    } as unknown as import("@wealth/domain").BankConnection,
+    0,
+  );
+  const row: import("./endute-transactions").StoredEnduteTransaction = {
+    id: transactionId,
+    accountId,
+    accountName: "Monzo",
+    institution: "Monzo",
+    booking_date: "2026-09-30",
+    value_date: null,
+    amount: "-12.00",
+    currency: "GBP",
+    description: "Tesco",
+    counterparty: null,
+    enrichment: {
+      merchant_name: "Tesco",
+      category: "Old provider label",
+      brand_domain: null,
+      confidence: null,
+      source: null,
+    },
+    sandbox: false,
+    importedAt: "2026-09-30T12:00:00Z",
+  };
+  const lease = (await store.transactions.acquire(owner, "import", Date.now()))!;
+  await store.transactions.putPage(owner, [row], "import");
+  await store.transactions.checkpoint(owner, { ...emptySync(), ...lease }, true);
+  expect((await store.categorisation.pending(owner)).items).toHaveLength(1);
+  let done = false,
+    submissions = 0;
+  const provider: import("../integrations/gemini").CategorisationProvider = {
+    submit: async () => {
+      submissions++;
+      return `batches/job${submissions}`;
+    },
+    get: async (name) => ({ name, done, failed: false, results: new Map([["tx_0", category.id]]) }),
+    find: async () => null,
+  };
+  const service = new CategorisationService(store, provider, true);
+  await service.save(owner, { categories: [category], expectedVersion: 0, recategorise: false });
+  await service.work(owner);
+  expect(submissions).toBe(1);
+  expect((await service.status(owner)).processing).toBe(1);
+  done = true;
+  await service.work(owner);
+  const first = (await service.list(owner)).rows[0]!;
+  expect(first.customCategory).toBe("Groceries");
+  expect(first.enrichment.category).toBe("Old provider label");
+  expect(first.categorisationStatus).toBe("complete");
+  expect((await store.categorisation.pending(owner)).items).toHaveLength(0);
+  expect(await service.list("other-owner").catch(() => null)).toBeNull();
+  await service.manual(owner, {
+    accountId,
+    transactionId,
+    categoryId: category.id,
+    expectedVersion: first.classification!.version,
+  });
+  await service.recategorise(owner, 1);
+  await service.work(owner);
+  expect(submissions).toBe(1);
+  expect((await service.list(owner)).rows[0]!.categorisationStatus).toBe("manual");
+
+  const second = { ...row, id: randomUUID(), description: "Sainsbury" };
+  const secondLease = (await store.transactions.acquire(owner, "import2", Date.now()))!;
+  await store.transactions.putPage(owner, [second], "import2");
+  await store.transactions.checkpoint(owner, secondLease, true);
+  done = false;
+  await service.work(owner);
+  expect(submissions).toBe(2);
+  await service.save(owner, {
+    categories: [{ ...category, name: "Food" }],
+    expectedVersion: 2,
+    recategorise: true,
+  });
+  done = true;
+  await service.work(owner);
+  expect(
+    (await service.list(owner)).rows.find((r) => r.id === second.id)!.classification,
+  ).toBeNull();
+  await service.work(owner);
+  expect((await service.list(owner)).rows.find((r) => r.id === second.id)!.customCategory).toBe(
+    "Food",
+  );
+
+  const third = { ...row, id: randomUUID(), description: "Unknown" };
+  const thirdLease = (await store.transactions.acquire(owner, "import3", Date.now()))!;
+  await store.transactions.putPage(owner, [third], "import3");
+  await store.transactions.checkpoint(owner, thirdLease, true);
+  provider.submit = async () => {
+    submissions++;
+    throw new GeminiError("timeout", true);
+  };
+  await service.work(owner);
+  const count = submissions;
+  await service.work(owner);
+  expect(submissions).toBe(count);
+  expect((await service.status(owner)).uncertain).toBe(true);
+  // Reconciling the accepted submission resumes collection without another POST.
+  provider.find = async () => "batches/reconciled";
+  await service.work(owner);
+  expect(submissions).toBe(count);
+  expect((await service.list(owner)).rows.find((r) => r.id === third.id)!.customCategory).toBe(
+    "Food",
+  );
+});
+
+it("rejects classification for a changed transaction and enforces a global batch limit", async () => {
+  const owner = `category-race-${randomUUID()}`,
+    accountId = randomUUID(),
+    transactionId = randomUUID();
+  const category = { id: randomUUID(), name: "Food", description: "" };
+  const row: import("./endute-transactions").StoredEnduteTransaction = {
+    id: transactionId,
+    accountId,
+    accountName: "Bank",
+    institution: "Bank",
+    booking_date: "2026-09-30",
+    value_date: null,
+    amount: "-12.00",
+    currency: "GBP",
+    description: "Shop",
+    counterparty: null,
+    enrichment: {
+      merchant_name: null,
+      category: null,
+      brand_domain: null,
+      confidence: null,
+      source: null,
+    },
+    sandbox: false,
+    importedAt: "now",
+  };
+  const config = await store.categorisation.save(owner, [category], 0, false);
+  const lease = (await store.transactions.acquire(owner, "race", Date.now()))!;
+  await store.transactions.putPage(owner, [row], "race");
+  const pending = (await store.categorisation.pending(owner)).items[0]!;
+  const batch: import("./categorisation").ClassificationBatch = {
+    id: randomUUID(),
+    displayName: "race",
+    providerName: null,
+    phase: "prepared",
+    version: config.version,
+    generation: config.generation,
+    model: "gemini-3.1-flash-lite",
+    createdAt: "now",
+    items: [pending],
+  };
+  await store.transactions.putPage(owner, [{ ...row, amount: "-15.00" }], "race");
+  expect(await store.categorisation.apply(owner, batch, pending, category.id)).toBe(false);
+  expect((await store.categorisation.pending(owner)).items[0]!.digest).not.toBe(pending.digest);
+  await store.transactions.checkpoint(owner, lease, true);
+  const reserved: string[] = [];
+  for (let index = 0; index < 10; index++) {
+    const id = randomUUID();
+    expect(await store.categorisation.reserve(owner, { ...batch, id })).toBe(true);
+    reserved.push(id);
+  }
+  expect(await store.categorisation.reserve("another-user", { ...batch, id: randomUUID() })).toBe(
+    false,
+  );
+  for (const id of reserved) await store.categorisation.finish(owner, id);
+});

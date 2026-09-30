@@ -1,3 +1,5 @@
+import { CategorisationService } from "../application/categorisation";
+import { GeminiBatchClient, GeminiError } from "../integrations/gemini";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { runEnduteSchedule } from "../application/endute-scheduler";
 import { EnduteTransactionsService } from "../application/endute-transactions";
@@ -32,6 +34,8 @@ const configSchema = z.object({
   DYNAMODB_TABLE: z.string().min(1),
   CREDENTIAL_KEY_ARN: z.string().min(1),
   GOOGLE_SECRET_ARN: z.string().min(1),
+  GEMINI_SECRET_ARN: z.string().optional(),
+  GEMINI_MODEL: z.string().default("gemini-3.1-flash-lite"),
 });
 async function initialize() {
   const config = configSchema.parse(process.env);
@@ -63,10 +67,34 @@ async function initialize() {
   const enduteClient = new EnduteClient();
   const analysis = new EnduteTransactionsService(store, enduteClient, cipher);
   const endute = new EnduteService(store, enduteClient, cipher);
+  let geminiKey: { value: string; until: number } | undefined;
+  const gemini = new GeminiBatchClient(async () => {
+    if (geminiKey && geminiKey.until > Date.now()) return geminiKey.value;
+    try {
+      if (!config.GEMINI_SECRET_ARN) throw new Error();
+      const result = await new SecretsManagerClient({}).send(
+        new GetSecretValueCommand({ SecretId: config.GEMINI_SECRET_ARN }),
+      );
+      const value = z
+        .object({ apiKey: z.string().min(1) })
+        .parse(JSON.parse(result.SecretString ?? "{}")).apiKey;
+      geminiKey = { value, until: Date.now() + 300000 };
+      return value;
+    } catch {
+      throw new GeminiError("The server Gemini API key has not been configured.");
+    }
+  }, config.GEMINI_MODEL);
+  const categorisation = new CategorisationService(
+    store,
+    gemini,
+    !!config.GEMINI_SECRET_ARN,
+    config.GEMINI_MODEL,
+  );
   const router = createRouter({
     monzo,
     endute,
     analysis,
+    categorisation,
     wealth: new WealthService(store),
     connections: new ConnectionService(store, provider, cipher),
     snapshots: new SnapshotService(store, provider, cipher, undefined, monzo, endute),
@@ -85,6 +113,7 @@ async function initialize() {
     config,
     store,
     analysis,
+    categorisation,
     auth,
     router,
     handleAuth: createAuthRequestHandler(auth, config.APP_ORIGIN, monzo),
@@ -148,17 +177,24 @@ export async function syncHandler(event: unknown) {
     runtime = undefined;
     throw error;
   });
-  const { store, analysis } = await runtime;
+  const { store, analysis, categorisation } = await runtime;
   const functionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (!functionName) throw new Error("Transaction worker function name is missing.");
   const lambda = new LambdaClient({});
-  await runEnduteSchedule(event, store.transactions, analysis, async (payload) => {
-    await lambda.send(
-      new InvokeCommand({
-        FunctionName: functionName,
-        InvocationType: "Event",
-        Payload: Buffer.from(JSON.stringify(payload)),
-      }),
-    );
-  });
+  await runEnduteSchedule(
+    event,
+    store.transactions,
+    analysis,
+    async (payload) => {
+      await lambda.send(
+        new InvokeCommand({
+          FunctionName: functionName,
+          InvocationType: "Event",
+          Payload: Buffer.from(JSON.stringify(payload)),
+        }),
+      );
+    },
+    (owner) => categorisation.work(owner),
+    (after) => store.categorisation.jobs(after),
+  );
 }

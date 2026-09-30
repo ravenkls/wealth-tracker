@@ -1,3 +1,4 @@
+import { categoriesInput, type CategorisationService } from "./application/categorisation";
 import type { EnduteTransactionsService } from "./application/endute-transactions";
 import type { EnduteService } from "./application/endute-service";
 import { EnduteError } from "./integrations/endute";
@@ -32,6 +33,10 @@ export interface ApiContext {
   readonly trustedOrigin: boolean;
 }
 export interface ApiDependencies {
+  readonly categorisation?: Pick<
+    CategorisationService,
+    "status" | "save" | "recategorise" | "manual" | "list"
+  >;
   readonly analysis?: Pick<EnduteTransactionsService, "status" | "list" | "sync">;
   readonly endute?: Pick<EnduteService, "connect" | "refresh" | "select" | "disconnect">;
   readonly monzo?: Pick<MonzoService, "start" | "refresh" | "select" | "disconnect">;
@@ -95,6 +100,10 @@ async function run<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 export function createRouter(d: ApiDependencies) {
+  const categorisation = () => {
+    if (!d.categorisation) throw new InputError("Categorisation is unavailable.");
+    return d.categorisation;
+  };
   const analysis = () => {
     if (!d.analysis) throw new InputError("Analysis is unavailable.");
     return d.analysis;
@@ -177,10 +186,49 @@ export function createRouter(d: ApiDependencies) {
       status: protectedProcedure.query(({ ctx }) => run(() => analysis().status(ctx.user.userId))),
       transactions: protectedProcedure
         .input(z.object({ cursor: z.string().max(2000).optional() }).default({}))
-        .query(({ ctx, input }) => run(() => analysis().list(ctx.user.userId, input.cursor))),
+        .query(({ ctx, input }) =>
+          run(() =>
+            d.categorisation
+              ? d.categorisation.list(ctx.user.userId, input.cursor)
+              : analysis()
+                  .list(ctx.user.userId, input.cursor)
+                  .then((page) => ({
+                    ...page,
+                    rows: page.rows.map((row) => ({
+                      ...row,
+                      customCategory: null,
+                      classification: null,
+                      categorisationStatus: "pending",
+                    })),
+                  })),
+          ),
+        ),
       refresh: protectedProcedure.mutation(({ ctx }) =>
         run(() => analysis().sync(ctx.user.userId)),
       ),
+    }),
+    categories: router({
+      status: protectedProcedure.query(({ ctx }) =>
+        run(() => categorisation().status(ctx.user.userId)),
+      ),
+      save: protectedProcedure
+        .input(categoriesInput)
+        .mutation(({ ctx, input }) => run(() => categorisation().save(ctx.user.userId, input))),
+      recategorise: protectedProcedure
+        .input(z.object({ expectedVersion }))
+        .mutation(({ ctx, input }) =>
+          run(() => categorisation().recategorise(ctx.user.userId, input.expectedVersion)),
+        ),
+      assign: protectedProcedure
+        .input(
+          z.object({
+            accountId: z.uuid(),
+            transactionId: z.uuid(),
+            categoryId: z.uuid().nullable(),
+            expectedVersion,
+          }),
+        )
+        .mutation(({ ctx, input }) => run(() => categorisation().manual(ctx.user.userId, input))),
     }),
     endute: router({
       connect: protectedProcedure

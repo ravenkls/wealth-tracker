@@ -145,7 +145,9 @@ it("guards Analysis reads and refreshes and keeps pagination scoped to the signe
   const analysis = {
     status:
       vi.fn<import("./application/endute-transactions").EnduteTransactionsService["status"]>(),
-    list: vi.fn<import("./application/endute-transactions").EnduteTransactionsService["list"]>(),
+    list: vi.fn<import("./application/endute-transactions").EnduteTransactionsService["list"]>(
+      async () => ({ rows: [], nextCursor: null }),
+    ),
     sync: vi.fn<import("./application/endute-transactions").EnduteTransactionsService["sync"]>(),
   };
   const app = createRouter({ ...mockServices(), analysis, isDatabaseReady: async () => true });

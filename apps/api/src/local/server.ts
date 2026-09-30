@@ -1,3 +1,5 @@
+import { CategorisationService } from "../application/categorisation";
+import { GeminiBatchClient, GeminiError } from "../integrations/gemini";
 import { runEnduteSchedule, type EnduteSyncEvent } from "../application/endute-scheduler";
 import { EnduteTransactionsService } from "../application/endute-transactions";
 import { EnduteService } from "../application/endute-service";
@@ -49,12 +51,23 @@ const provider = new Trading212Client();
 const monzo = new MonzoService(wealthStore, new MonzoClient(), cipher, config.appOrigin);
 const enduteClient = new EnduteClient();
 const analysis = new EnduteTransactionsService(wealthStore, enduteClient, cipher);
+const gemini = new GeminiBatchClient(async () => {
+  if (!process.env.GEMINI_API_KEY) throw new GeminiError("Set GEMINI_API_KEY on the local server.");
+  return process.env.GEMINI_API_KEY;
+}, process.env.GEMINI_MODEL);
+const categorisation = new CategorisationService(
+  wealthStore,
+  gemini,
+  !!process.env.GEMINI_API_KEY,
+  process.env.GEMINI_MODEL,
+);
 const endute = new EnduteService(wealthStore, enduteClient, cipher);
 const handleAuth = createAuthHandler(auth, config.appOrigin, monzo);
 const appRouter = createRouter({
   monzo,
   endute,
   analysis,
+  categorisation,
   wealth: new WealthService(wealthStore),
   connections: new ConnectionService(wealthStore, provider, cipher),
   snapshots: new SnapshotService(wealthStore, provider, cipher, undefined, monzo, endute),
@@ -120,7 +133,14 @@ async function syncLocalTransactions() {
   if (syncingTransactions) return;
   syncingTransactions = true;
   const run = async (event: EnduteSyncEvent): Promise<void> => {
-    await runEnduteSchedule(event, wealthStore.transactions, analysis, run);
+    await runEnduteSchedule(
+      event,
+      wealthStore.transactions,
+      analysis,
+      run,
+      (owner) => categorisation.work(owner),
+      (after) => wealthStore.categorisation.jobs(after),
+    );
   };
   try {
     await run({ kind: "dispatch" });

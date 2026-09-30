@@ -1,3 +1,4 @@
+import { CategorisationStore } from "./categorisation";
 import { EnduteTransactionStore } from "./endute-transactions";
 import type { DynamoDBDocumentClient, TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
@@ -87,6 +88,7 @@ interface SaveReceipt {
   snapshot: Snapshot;
 }
 export class WealthStore {
+  readonly categorisation: CategorisationStore;
   readonly transactions: EnduteTransactionStore;
   readonly banks: Records<BankConnection>;
   readonly monzoAttempts: ReturnType<typeof monzoAttemptEntity>;
@@ -103,6 +105,7 @@ export class WealthStore {
     private readonly client: DynamoDBDocumentClient,
     table: string,
   ) {
+    this.categorisation = new CategorisationStore(client, table);
     this.transactions = new EnduteTransactionStore(client, table);
     this.banks = new Records("bankConnection", client, table);
     this.monzoAttempts = monzoAttemptEntity(client, table);

@@ -172,7 +172,7 @@ export class EnduteTransactionStore {
         previous.get(`${row.accountId}#${row.id}`)?.digest !==
         fingerprints.get(`${row.accountId}#${row.id}`),
     );
-    for (let offset = 0; offset < changed.length; offset += 25) {
+    for (let offset = 0; offset < changed.length; offset += 20) {
       const writes: NonNullable<
         ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]
       > = [
@@ -196,7 +196,7 @@ export class EnduteTransactionStore {
             ExpressionAttributeValues: { ":credentials": bank.credentials, ":disconnected": false },
           },
         });
-      for (const row of changed.slice(offset, offset + 25)) {
+      for (const row of changed.slice(offset, offset + 20)) {
         const id = `${row.accountId}#${row.id}`;
         const rowKey = `${row.booking_date}#${id}`;
         const old = previous.get(id)?.rowKey;
@@ -212,10 +212,69 @@ export class EnduteTransactionStore {
             },
           },
           { Put: { TableName: this.table, Item: { pk: this.rows(owner), sk: rowKey, data: row } } },
+          {
+            Put: {
+              TableName: this.table,
+              Item: {
+                pk: `CAT_PENDING#${owner}`,
+                sk: id,
+                rowKey,
+                digest: fingerprints.get(id),
+                attempts: 0,
+              },
+            },
+          },
         );
       }
       await this.client.send(new TransactWriteCommand({ TransactItems: writes }));
     }
+  }
+  async identities(owner: string, ids: string[]) {
+    const result = new Map<string, { rowKey: string; digest: string }>();
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      let keys = [...new Set(ids.slice(offset, offset + 100))].map((sk) => ({
+        pk: this.ids(owner),
+        sk,
+      }));
+      for (let attempt = 0; keys.length && attempt < 5; attempt++) {
+        const page = await this.client.send(
+          new BatchGetCommand({
+            RequestItems: { [this.table]: { Keys: keys, ConsistentRead: true } },
+          }),
+        );
+        for (const item of page.Responses?.[this.table] ?? [])
+          result.set(item.sk as string, {
+            rowKey: item.rowKey as string,
+            digest: item.digest as string,
+          });
+        keys = (page.UnprocessedKeys?.[this.table]?.Keys ?? []) as typeof keys;
+        if (keys.length) await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
+      }
+      if (keys.length) throw new Error("Transaction identities could not be read.");
+    }
+    return result;
+  }
+  async readRows(owner: string, keys: string[]) {
+    const rows = new Map<string, StoredEnduteTransaction>();
+    for (let offset = 0; offset < keys.length; offset += 100) {
+      let pending = [...new Set(keys.slice(offset, offset + 100))].map((sk) => ({
+        pk: this.rows(owner),
+        sk,
+      }));
+      for (let attempt = 0; pending.length && attempt < 5; attempt++) {
+        const result = await this.client.send(
+          new BatchGetCommand({
+            RequestItems: { [this.table]: { Keys: pending, ConsistentRead: true } },
+          }),
+        );
+        for (const item of result.Responses?.[this.table] ?? [])
+          rows.set(item.sk as string, item.data as StoredEnduteTransaction);
+        pending = (result.UnprocessedKeys?.[this.table]?.Keys ?? []) as typeof pending;
+        if (pending.length) await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
+      }
+      if (pending.length) throw new Error("Transaction data could not be read.");
+    }
+    return rows;
   }
   async list(owner: string, cursor?: string, limit = 50) {
     let start: { pk: string; sk: string } | undefined;

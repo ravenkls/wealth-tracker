@@ -58,6 +58,18 @@ async function main() {
     await enrichHistory(process.argv[3]);
     return;
   }
+  if (process.argv[2] === "seed-gemini") {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Missing GEMINI_API_KEY in the server environment");
+    await new SecretsManagerClient({ region }).send(
+      new PutSecretValueCommand({
+        SecretId: "wealth-tracker/production/gemini",
+        SecretString: JSON.stringify({ apiKey }),
+      }),
+    );
+    console.log("Gemini secret updated; the key was not printed.");
+    return;
+  }
   if (process.argv[2] === "seed-google") {
     const clientId = process.env.GOOGLE_CLIENT_ID,
       clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -71,7 +83,8 @@ async function main() {
     console.log("Production Google credentials saved.");
     return;
   }
-  if (process.argv[2] !== "migrate") throw new Error("Use seed-google, migrate or enrich-history");
+  if (process.argv[2] !== "migrate")
+    throw new Error("Use seed-google, seed-gemini, migrate or enrich-history");
   const key = process.env.LOCAL_ENCRYPTION_KEY;
   if (!key) throw new Error("Missing local encryption key");
   const local = DynamoDBDocumentClient.from(

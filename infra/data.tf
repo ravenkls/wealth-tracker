@@ -39,3 +39,10 @@ resource "aws_secretsmanager_secret" "google" {
 output "table_name" { value = aws_dynamodb_table.app.name }
 output "credential_key_arn" { value = aws_kms_key.credentials.arn }
 output "google_secret_arn" { value = aws_secretsmanager_secret.google.arn }
+resource "aws_secretsmanager_secret" "gemini" {
+  name                    = "wealth-tracker/production/gemini"
+  description             = "Server-managed Gemini API key; value managed outside Terraform"
+  recovery_window_in_days = 30
+  lifecycle { prevent_destroy = true }
+}
+output "gemini_secret_arn" { value = aws_secretsmanager_secret.gemini.arn }

@@ -12,10 +12,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatGbp, pence } from "@wealth/domain";
 import type { TimePoint } from "./chartData";
 import { colors, shortMonth } from "./chartData";
-import { axisTick, ChartEmpty, compactMoney, tooltipStyle } from "./ChartFrame";
+import { axisTick, ChartEmpty, chartMoney, compactCurrencyMoney, tooltipStyle } from "./ChartFrame";
 export interface ChartSeries {
   key: string;
   name: string;
@@ -27,12 +26,18 @@ export interface ChartSeries {
 }
 export function TimelineChart({
   points,
+  currency = "GBP",
+  formatLabel = shortMonth,
+  showLegend = true,
   series,
   percent = false,
   detailKey = "detail",
   empty = "No recorded values in this range.",
 }: {
   readonly points: TimePoint[];
+  readonly currency?: string;
+  readonly showLegend?: boolean;
+  readonly formatLabel?: (value: unknown) => string;
   readonly series: ChartSeries[];
   readonly percent?: boolean;
   readonly detailKey?: string;
@@ -62,7 +67,7 @@ export function TimelineChart({
             <XAxis
               dataKey="label"
               tick={axisTick}
-              tickFormatter={shortMonth}
+              tickFormatter={formatLabel}
               axisLine={false}
               tickLine={false}
               minTickGap={28}
@@ -70,7 +75,9 @@ export function TimelineChart({
             />
             <YAxis
               tick={axisTick}
-              tickFormatter={(value) => (percent ? value + "%" : compactMoney(Number(value)))}
+              tickFormatter={(value) =>
+                percent ? value + "%" : compactCurrencyMoney(Number(value), currency)
+              }
               axisLine={false}
               tickLine={false}
               width={65}
@@ -78,11 +85,11 @@ export function TimelineChart({
             <ReferenceLine y={0} stroke="var(--chart-muted)" />
             <Tooltip
               formatter={(value, name) => [
-                percent ? Number(value).toFixed(1) + "%" : formatGbp(pence(Number(value))),
+                percent ? Number(value).toFixed(1) + "%" : chartMoney(Number(value), currency),
                 name,
               ]}
               labelFormatter={(label, payload) =>
-                String(payload[0]?.payload[detailKey] ?? shortMonth(label))
+                String(payload[0]?.payload[detailKey] ?? formatLabel(label))
               }
               contentStyle={tooltipStyle}
               itemStyle={{ color: "var(--chart-text)" }}
@@ -125,22 +132,24 @@ export function TimelineChart({
           </ComposedChart>
         </ResponsiveContainer>
       </Box>
-      <Stack direction="row" sx={{ gap: 2, justifyContent: "center", flexWrap: "wrap", mt: 1 }}>
-        {visibleSeries.map((item) => (
-          <Typography
-            key={item.key}
-            sx={{
-              borderBottom: "2px solid",
-              borderColor: item.color,
-              pb: 0.5,
-              fontSize: 12,
-              color: "text.secondary",
-            }}
-          >
-            {item.name}
-          </Typography>
-        ))}
-      </Stack>
+      {showLegend && (
+        <Stack direction="row" sx={{ gap: 2, justifyContent: "center", flexWrap: "wrap", mt: 1 }}>
+          {visibleSeries.map((item) => (
+            <Typography
+              key={item.key}
+              sx={{
+                borderBottom: "2px solid",
+                borderColor: item.color,
+                pb: 0.5,
+                fontSize: 12,
+                color: "text.secondary",
+              }}
+            >
+              {item.name}
+            </Typography>
+          ))}
+        </Stack>
+      )}
     </>
   );
 }

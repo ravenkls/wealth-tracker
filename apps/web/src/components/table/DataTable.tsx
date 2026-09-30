@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   SvgIcon,
@@ -7,6 +7,9 @@ import {
   IconButton,
   MenuItem,
   Paper,
+  Pagination,
+  Skeleton,
+  Typography,
   Stack,
   Table,
   TableBody,
@@ -88,6 +91,7 @@ export function DataTable<T extends object>({
   disabled = false,
   defaultGrouping = empty.grouping,
   pagination,
+  loading = false,
 }: {
   readonly id: TableId;
   readonly label: string;
@@ -98,15 +102,23 @@ export function DataTable<T extends object>({
   readonly reorder?: boolean;
   readonly disabled?: boolean;
   readonly defaultGrouping?: string[];
+  readonly loading?: boolean;
   readonly pagination?: {
     pageIndex: number;
+    resetKey?: string;
     hasNext: boolean;
     loading: boolean;
     onNext: () => void;
-    onPrevious: () => void;
-    onFirst: () => void;
+    knownPageCount: number;
+    onPage: (pageIndex: number) => void;
   };
 }) {
+  const scrollArea = useRef<HTMLElement | null>(null);
+  const pageIndex = pagination?.pageIndex;
+  const resetKey = pagination?.resetKey;
+  useEffect(() => {
+    if (scrollArea.current && pageIndex !== undefined) scrollArea.current.scrollTop = 0;
+  }, [pageIndex, resetKey]);
   const remote = data.preferences.find((item) => item.id === id);
   const [local, setLocal] = useState<{ version: number; preferences: TablePreferences } | null>(
     null,
@@ -124,7 +136,7 @@ export function DataTable<T extends object>({
   if (expansion.key !== groupingKey) setExpansion({ key: groupingKey, value: true });
   const expanded = expansion.key === groupingKey ? expansion.value : true;
   const persistence = useTableSave();
-  const locked = disabled || persistence.disabled;
+  const locked = disabled || loading || persistence.disabled;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -189,6 +201,13 @@ export function DataTable<T extends object>({
   return (
     <Paper variant="outlined" sx={{ overflow: "hidden", minWidth: 0 }}>
       <Stack direction="row" sx={{ p: 1.5, alignItems: "center", flexWrap: "wrap", gap: 1 }}>
+        {pagination && (
+          <Box>
+            <Typography component="h2" sx={{ fontSize: 17, fontWeight: 600 }}>
+              {label}
+            </Typography>
+          </Box>
+        )}
         {columns.some((column) => column.groupable) && (
           <TextField
             size="small"
@@ -251,20 +270,23 @@ export function DataTable<T extends object>({
         }}
       >
         <TableContainer
+          ref={scrollArea}
           tabIndex={0}
           component="section"
           aria-label={label + " scroll area"}
-          sx={{ overflowX: "auto", maxHeight: pagination ? "60vh" : undefined }}
+          aria-busy={loading}
+          sx={{ overflowX: "auto", height: pagination ? "60vh" : undefined }}
         >
           <Table
             size="small"
             stickyHeader={!!pagination}
             aria-label={label}
             sx={{
+              ...(pagination ? { tableLayout: "fixed", minWidth: 1100 } : {}),
               "& td, & th": { px: 1.5, py: 0.6 },
               "& th": { bgcolor: "var(--app-inset)", height: 48, fontSize: 12 },
               "& .MuiTableRow-hover:hover": { bgcolor: "action.hover" },
-              "& td": { height: 44 },
+              "& td": { height: pagination ? 64 : 44 },
               "& tbody tr:last-child td": { borderBottom: 0 },
             }}
           >
@@ -286,6 +308,7 @@ export function DataTable<T extends object>({
                       minWidth={
                         columns.find((column) => column.id === header.column.id)?.minWidth ?? 0
                       }
+                      fixedWidth={!!pagination}
                     >
                       {header.column.getCanSort() ? (
                         <TableSortLabel
@@ -309,91 +332,114 @@ export function DataTable<T extends object>({
                 items={ordered.map((row) => "row:" + rowId(row))}
                 strategy={verticalListSortingStrategy}
               >
-                {table.getRowModel().rows.map((row) =>
-                  row.getIsGrouped() ? (
-                    <TableRow key={row.id} sx={{ bgcolor: "action.hover" }}>
+                {loading &&
+                  Array.from({ length: rows.length || 10 }, (_, index) => (
+                    <TableRow key={"loading:" + index} aria-hidden="true">
                       {reorder && <TableCell />}
-                      {row.getVisibleCells().map((cell) => {
-                        const column = columns.find((item) => item.id === cell.column.id)!;
-                        const labelColumn = headers.find(
-                          (header) =>
-                            !columns.find((item) => item.id === header.column.id)?.aggregate,
-                        )?.column.id;
-                        return (
-                          <TableCell
-                            key={cell.id}
-                            align={column.align ?? "left"}
-                            sx={{
-                              fontWeight: 600,
-                              whiteSpace: "nowrap",
-                              fontVariantNumeric: "tabular-nums",
-                            }}
-                          >
-                            {cell.column.id === labelColumn ? (
-                              <Button
-                                size="small"
-                                onClick={row.getToggleExpandedHandler()}
-                                aria-expanded={row.getIsExpanded()}
-                                startIcon={
-                                  <SvgIcon
-                                    sx={{
-                                      transform: row.getIsExpanded() ? "rotate(90deg)" : undefined,
-                                    }}
-                                  >
-                                    <path
-                                      d="m9 6 6 6-6 6"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                    />
-                                  </SvgIcon>
-                                }
-                              >
-                                {String(row.getValue(row.groupingColumnId!) ?? "Unassigned")} (
-                                {row.getLeafRows().length})
-                              </Button>
-                            ) : (
-                              column.aggregate?.(row.getLeafRows().map((leaf) => leaf.original))
-                            )}
-                          </TableCell>
-                        );
-                      })}
+                      {headers.map((header, cellIndex) => (
+                        <TableCell key={header.id}>
+                          <Skeleton
+                            animation="pulse"
+                            width={cellIndex % 2 ? "85%" : "65%"}
+                            height={18}
+                          />
+                          {header.column.id === "category" && (
+                            <Skeleton width="45%" height={12} sx={{ mt: 1 }} />
+                          )}
+                        </TableCell>
+                      ))}
                     </TableRow>
-                  ) : (
-                    <DraggableRow
-                      key={row.id}
-                      id={"row:" + row.id}
-                      enabled={canMoveRows}
-                      showHandle={reorder}
-                    >
-                      {row.getVisibleCells().map((cell) => {
-                        const column = columns.find((item) => item.id === cell.column.id)!;
-                        return (
-                          <TableCell
-                            key={cell.id}
-                            align={column.align ?? "left"}
-                            sx={{
-                              whiteSpace: "nowrap",
-                              fontVariantNumeric: "tabular-nums",
-                              minWidth: column.minWidth,
-                            }}
-                          >
-                            {column.render
-                              ? column.render(row.original)
-                              : (column.value(row.original) ?? "—")}
-                          </TableCell>
-                        );
-                      })}
-                    </DraggableRow>
-                  ),
-                )}
-                {!rows.length && (
+                  ))}
+                {!loading &&
+                  table.getRowModel().rows.map((row) =>
+                    row.getIsGrouped() ? (
+                      <TableRow key={row.id} sx={{ bgcolor: "action.hover" }}>
+                        {reorder && <TableCell />}
+                        {row.getVisibleCells().map((cell) => {
+                          const column = columns.find((item) => item.id === cell.column.id)!;
+                          const labelColumn = headers.find(
+                            (header) =>
+                              !columns.find((item) => item.id === header.column.id)?.aggregate,
+                          )?.column.id;
+                          return (
+                            <TableCell
+                              key={cell.id}
+                              align={column.align ?? "left"}
+                              sx={{
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {cell.column.id === labelColumn ? (
+                                <Button
+                                  size="small"
+                                  onClick={row.getToggleExpandedHandler()}
+                                  aria-expanded={row.getIsExpanded()}
+                                  startIcon={
+                                    <SvgIcon
+                                      sx={{
+                                        transform: row.getIsExpanded()
+                                          ? "rotate(90deg)"
+                                          : "More pages",
+                                      }}
+                                    >
+                                      <path
+                                        d="m9 6 6 6-6 6"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                      />
+                                    </SvgIcon>
+                                  }
+                                >
+                                  {String(row.getValue(row.groupingColumnId!) ?? "Unassigned")} (
+                                  {row.getLeafRows().length})
+                                </Button>
+                              ) : (
+                                column.aggregate?.(row.getLeafRows().map((leaf) => leaf.original))
+                              )}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    ) : (
+                      <DraggableRow
+                        key={row.id}
+                        id={"row:" + row.id}
+                        enabled={canMoveRows}
+                        showHandle={reorder}
+                      >
+                        {row.getVisibleCells().map((cell) => {
+                          const column = columns.find((item) => item.id === cell.column.id)!;
+                          return (
+                            <TableCell
+                              key={cell.id}
+                              align={column.align ?? "left"}
+                              sx={{
+                                whiteSpace: "nowrap",
+                                fontVariantNumeric: "tabular-nums",
+                                minWidth: column.minWidth,
+                              }}
+                            >
+                              {column.render
+                                ? column.render(row.original)
+                                : (column.value(row.original) ?? "—")}
+                            </TableCell>
+                          );
+                        })}
+                      </DraggableRow>
+                    ),
+                  )}
+                {!loading && !rows.length && (
                   <TableRow>
                     <TableCell
                       colSpan={columns.length + (reorder ? 1 : 0)}
                       sx={{ py: "24px !important", color: "text.secondary" }}
                     >
-                      No entries yet.
+                      {pagination
+                        ? "No transactions yet. Refresh to import your bank history."
+                        : "No entries yet."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -404,48 +450,47 @@ export function DataTable<T extends object>({
       </DndContext>
       {pagination && (
         <Stack
-          direction="row"
+          component="nav"
+          aria-label="Transaction pages"
+          direction={{ xs: "column", sm: "row" }}
           sx={{
             p: 1.5,
-            gap: 1,
-            flexWrap: "wrap",
+            gap: 1.5,
             alignItems: "center",
-            justifyContent: "flex-end",
+            justifyContent: "space-between",
             borderTop: 1,
             borderColor: "divider",
           }}
         >
-          <Box
-            sx={{
-              mr: "auto",
-              width: { xs: "100%", sm: "auto" },
-              fontSize: 13,
-              color: "text.secondary",
-            }}
-          >
-            Page {pagination.pageIndex + 1} · {rows.length} transactions
+          <Box component="output" sx={{ fontSize: 12, color: "text.secondary" }}>
+            {loading ? "Loading transactions…" : `${rows.length} transactions on this page`}
           </Box>
-          <Button
-            size="small"
-            disabled={pagination.loading || pagination.pageIndex === 0}
-            onClick={pagination.onFirst}
-          >
-            First
-          </Button>
-          <Button
-            size="small"
-            disabled={pagination.loading || pagination.pageIndex === 0}
-            onClick={pagination.onPrevious}
-          >
-            Previous
-          </Button>
-          <Button
-            size="small"
-            disabled={pagination.loading || !pagination.hasNext}
-            onClick={pagination.onNext}
-          >
-            Next
-          </Button>
+          <Pagination
+            count={Math.max(
+              pagination.knownPageCount,
+              pagination.pageIndex + (pagination.hasNext ? 2 : 1),
+            )}
+            page={pagination.pageIndex + 1}
+            disabled={pagination.loading}
+            onChange={(_, page) => {
+              if (page - 1 < pagination.knownPageCount) pagination.onPage(page - 1);
+              else pagination.onNext();
+            }}
+            color="primary"
+            shape="rounded"
+            siblingCount={0}
+            boundaryCount={1}
+            getItemAriaLabel={(type, page) =>
+              type === "page"
+                ? `Go to page ${page}`
+                : type === "next"
+                  ? "Next page"
+                  : type === "previous"
+                    ? "Previous page"
+                    : "More pages"
+            }
+            sx={{ "& .MuiPaginationItem-root": { fontVariantNumeric: "tabular-nums" } }}
+          />
         </Stack>
       )}
     </Paper>
@@ -457,11 +502,13 @@ function DraggableHeader({
   children,
   align,
   minWidth,
+  fixedWidth,
 }: {
   readonly id: string;
   readonly disabled: boolean;
   readonly align: "left" | "right";
   readonly minWidth: number;
+  readonly fixedWidth: boolean;
   readonly children: ReactNode;
 }) {
   const { setNodeRef, transform, transition, attributes, listeners } = useSortable({
@@ -476,6 +523,7 @@ function DraggableHeader({
       sx={{
         whiteSpace: "nowrap",
         minWidth,
+        width: fixedWidth ? minWidth || 160 : undefined,
         "& .column-drag": { opacity: 0.45 },
         "&:hover .column-drag, &:focus-within .column-drag": { opacity: 1 },
       }}

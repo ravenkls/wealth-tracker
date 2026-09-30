@@ -1758,6 +1758,12 @@ it("categorises queued imports, preserves manual choices and rejects stale batch
   };
   const service = new CategorisationService(store, provider, true);
   await service.save(owner, { categories: [category], expectedVersion: 0, recategorise: false });
+  expect((await store.categorisation.config(owner)).categories).toEqual([
+    { id: category.id, name: category.name },
+  ]);
+  expect((await service.status(owner)).categories).toEqual([
+    { id: category.id, name: category.name },
+  ]);
   await service.work(owner);
   expect(submissions).toBe(1);
   expect((await service.status(owner)).processing).toBe(1);
@@ -1879,4 +1885,50 @@ it("rejects classification for a changed transaction and enforces a global batch
     false,
   );
   for (const id of reserved) await store.categorisation.finish(owner, id);
+});
+
+it("queries the selected month across pages without leaking adjacent dates or another owner's cursors", async () => {
+  const f = await analysisFixture();
+  f.transactionProvider.transactions.mockResolvedValue({
+    results: [
+      ...Array.from({ length: 65 }, (_, i) =>
+        enduteTransaction(i + 1, i === 0 ? "2026-09-01" : "2026-09-30"),
+      ),
+      enduteTransaction(900, "2026-08-31"),
+      enduteTransaction(901, "2026-10-01"),
+    ],
+    next: null,
+  });
+  await f.transactions.sync(f.owner);
+  const range = { from: "2026-09-01", to: "2026-09-30" };
+  const first = await f.transactions.list(f.owner, undefined, range);
+  const second = await f.transactions.list(f.owner, first.nextCursor!, range);
+  expect([...first.rows, ...second.rows]).toHaveLength(65);
+  expect(second.nextCursor).toBeNull();
+  expect(second.rows.some((row) => row.booking_date === "2026-09-01")).toBe(true);
+  expect(first.rows.every((row) => row.booking_date === "2026-09-30")).toBe(true);
+  await expect(
+    store.transactions.list("another-owner", first.nextCursor!, 50, range),
+  ).rejects.toThrow("Invalid transaction page");
+  await expect(
+    store.transactions.list(f.owner, first.nextCursor!, 50, {
+      from: "2026-08-01",
+      to: "2026-08-31",
+    }),
+  ).rejects.toThrow("Invalid transaction page");
+  const { CategorisationService } = await import("../application/categorisation");
+  const service = new CategorisationService(
+    store,
+    {
+      submit: async () => "",
+      get: async () => ({ name: "", done: false, failed: false, results: new Map() }),
+      find: async () => null,
+    },
+    false,
+  );
+  const insights = await service.insights(f.owner, range);
+  expect(insights.nextCursor).toBeNull();
+  expect(insights.currencies[0]?.totals).toEqual({ moneyIn: 0, moneyOut: 65 * 1280, count: 65 });
+  expect(insights.currencies[0]?.categories[0]?.name).toBe("Uncategorised");
+  await expect(service.insights("another-owner", range)).rejects.toThrow("Connect Endute");
 });

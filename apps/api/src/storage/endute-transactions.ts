@@ -13,6 +13,11 @@ import type { EnduteTransaction } from "../integrations/endute";
 import { InputError } from "../application/snapshot-service";
 import { hasErrorName } from "./errors";
 
+export interface TransactionRange {
+  from: string;
+  to: string;
+}
+
 export interface StoredEnduteTransaction extends EnduteTransaction {
   accountId: string;
   accountName: string;
@@ -276,7 +281,7 @@ export class EnduteTransactionStore {
     }
     return rows;
   }
-  async list(owner: string, cursor?: string, limit = 50) {
+  async list(owner: string, cursor?: string, limit = 50, range?: TransactionRange) {
     let start: { pk: string; sk: string } | undefined;
     if (cursor) {
       try {
@@ -288,7 +293,8 @@ export class EnduteTransactionStore {
           !("sk" in value) ||
           value.pk !== this.rows(owner) ||
           typeof value.sk !== "string" ||
-          !/^\d{4}-\d{2}-\d{2}#/.test(value.sk)
+          !/^\d{4}-\d{2}-\d{2}#/.test(value.sk) ||
+          (range && (value.sk < `${range.from}#` || value.sk > `${range.to}#\uffff`))
         )
           throw new Error();
         start = { pk: this.rows(owner), sk: value.sk };
@@ -299,11 +305,14 @@ export class EnduteTransactionStore {
     const result = await this.client.send(
       new QueryCommand({
         TableName: this.table,
-        KeyConditionExpression: "pk = :pk",
-        ExpressionAttributeValues: { ":pk": this.rows(owner) },
+        KeyConditionExpression: range ? "pk = :pk AND sk BETWEEN :from AND :to" : "pk = :pk",
+        ExpressionAttributeValues: {
+          ":pk": this.rows(owner),
+          ...(range ? { ":from": `${range.from}#`, ":to": `${range.to}#\uffff` } : {}),
+        },
         ScanIndexForward: false,
         ConsistentRead: true,
-        Limit: Math.min(Math.max(limit, 1), 100),
+        Limit: Math.min(Math.max(limit, 1), 500),
         ...(start ? { ExclusiveStartKey: start } : {}),
       }),
     );

@@ -6,6 +6,8 @@ const paths = {
   budget: "M4 20V10 M10 20V4 M16 20v-8 M22 20H2",
   analysis: "M4 20V4 M4 20h17 M8 15l4-5 4 2 5-7",
   history: "M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v6l4 2",
+  check: "m5 12 4 4L19 6",
+  refresh: "M20 7v5h-5 M4 17v-5h5 M6 7a7 7 0 0 1 12-1l2 6 M4 12l2 6a7 7 0 0 0 12-1",
   plus: "M12 5v14 M5 12h14",
   chevron: "m9 5 7 7-7 7",
   down: "m7 10 5 5 5-5",

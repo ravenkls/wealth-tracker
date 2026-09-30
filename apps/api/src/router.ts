@@ -27,6 +27,28 @@ import {
   identifier,
   period,
 } from "./application/schemas";
+const transactionPageInput = z
+  .object({
+    cursor: z.string().max(2000).optional(),
+    from: z.iso.date().optional(),
+    to: z.iso.date().optional(),
+  })
+  .refine(
+    (input) =>
+      (!input.from && !input.to) ||
+      (!!input.from &&
+        !!input.to &&
+        input.from <= input.to &&
+        Date.parse(input.to) - Date.parse(input.from) <= 366 * 86400000),
+    "Choose a date range of up to one year.",
+  );
+const insightsInput = z
+  .object({ cursor: z.string().max(2000).optional(), from: z.iso.date(), to: z.iso.date() })
+  .refine(
+    (input) =>
+      input.from <= input.to && Date.parse(input.to) - Date.parse(input.from) <= 366 * 86400000,
+    "Choose a date range of up to one year.",
+  );
 export interface ApiContext {
   readonly sessionHash?: string;
   readonly user: { userId: string; profile: Profile } | null;
@@ -35,7 +57,7 @@ export interface ApiContext {
 export interface ApiDependencies {
   readonly categorisation?: Pick<
     CategorisationService,
-    "status" | "save" | "recategorise" | "manual" | "list"
+    "status" | "save" | "recategorise" | "manual" | "list" | "insights"
   >;
   readonly analysis?: Pick<EnduteTransactionsService, "status" | "list" | "sync">;
   readonly endute?: Pick<EnduteService, "connect" | "refresh" | "select" | "disconnect">;
@@ -185,13 +207,21 @@ export function createRouter(d: ApiDependencies) {
     analysis: router({
       status: protectedProcedure.query(({ ctx }) => run(() => analysis().status(ctx.user.userId))),
       transactions: protectedProcedure
-        .input(z.object({ cursor: z.string().max(2000).optional() }).default({}))
+        .input(transactionPageInput.default({}))
         .query(({ ctx, input }) =>
           run(() =>
             d.categorisation
-              ? d.categorisation.list(ctx.user.userId, input.cursor)
+              ? d.categorisation.list(
+                  ctx.user.userId,
+                  input.cursor,
+                  input.from && input.to ? { from: input.from, to: input.to } : undefined,
+                )
               : analysis()
-                  .list(ctx.user.userId, input.cursor)
+                  .list(
+                    ctx.user.userId,
+                    input.cursor,
+                    input.from && input.to ? { from: input.from, to: input.to } : undefined,
+                  )
                   .then((page) => ({
                     ...page,
                     rows: page.rows.map((row) => ({
@@ -201,6 +231,17 @@ export function createRouter(d: ApiDependencies) {
                       categorisationStatus: "pending",
                     })),
                   })),
+          ),
+        ),
+      insights: protectedProcedure
+        .input(insightsInput)
+        .query(({ ctx, input }) =>
+          run(() =>
+            categorisation().insights(
+              ctx.user.userId,
+              { from: input.from, to: input.to },
+              input.cursor,
+            ),
           ),
         ),
       refresh: protectedProcedure.mutation(({ ctx }) =>

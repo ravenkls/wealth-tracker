@@ -14,16 +14,17 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatGbp, pence } from "@wealth/domain";
 import type { AmountPoint } from "./chartData";
 import { palette, colors } from "./chartData";
-import { axisTick, ChartEmpty, compactMoney, tooltipStyle } from "./ChartFrame";
+import { axisTick, ChartEmpty, chartMoney, compactCurrencyMoney, tooltipStyle } from "./ChartFrame";
 export function BreakdownChart({
   points,
+  currency = "GBP",
   kind = "bars",
   empty = "No amounts to show yet.",
 }: {
   readonly points: AmountPoint[];
+  readonly currency?: string;
   readonly kind?: "bars" | "donut";
   readonly empty?: string;
 }) {
@@ -66,7 +67,7 @@ export function BreakdownChart({
                 ))}
               </Pie>
               <Tooltip
-                formatter={(value) => formatGbp(pence(Number(value)))}
+                formatter={(value) => chartMoney(Number(value), currency)}
                 contentStyle={tooltipStyle}
                 itemStyle={{ color: "var(--chart-text)" }}
               />
@@ -78,7 +79,7 @@ export function BreakdownChart({
             <Box key={row.id} sx={{ borderLeft: "3px solid", borderColor: row.color, pl: 1.5 }}>
               <Typography sx={{ fontSize: 13, overflowWrap: "anywhere" }}>{row.name}</Typography>
               <Typography color="text.secondary" sx={{ fontSize: 12, mt: 0.3 }}>
-                {formatGbp(pence(row.value))} ({((row.value / total) * 100).toFixed(1)}%)
+                {chartMoney(row.value, currency)} ({((row.value / total) * 100).toFixed(1)}%)
               </Typography>
             </Box>
           ))}
@@ -100,7 +101,7 @@ export function BreakdownChart({
               type="number"
               orientation="top"
               tickCount={narrow ? 3 : 5}
-              tickFormatter={compactMoney}
+              tickFormatter={(value) => compactCurrencyMoney(Number(value), currency)}
               tick={axisTick}
               axisLine={false}
               tickLine={false}
@@ -136,7 +137,7 @@ export function BreakdownChart({
             />
             <ReferenceLine x={0} stroke="var(--chart-muted)" />
             <Tooltip
-              formatter={(value) => [formatGbp(pence(Number(value))), "Value"]}
+              formatter={(value) => [chartMoney(Number(value), currency), "Value"]}
               labelFormatter={(label) =>
                 rows.find((row) => row.id === label)?.name ?? String(label)
               }

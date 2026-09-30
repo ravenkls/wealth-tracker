@@ -70,10 +70,14 @@ export const tooltipStyle = {
   boxShadow: "0 8px 24px #0004",
 };
 export const axisTick = { fill: "var(--chart-muted)", fontSize: 11 };
-export const compactMoney = (value: number) =>
+export const chartMoney = (value: number, currency = "GBP") =>
+  new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(value / 100);
+export const compactCurrencyMoney = (value: number, currency: string) =>
   new Intl.NumberFormat("en-GB", {
     style: "currency",
-    currency: "GBP",
+    currency,
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value / 100);
+
+export const compactMoney = (value: number) => compactCurrencyMoney(value, "GBP");

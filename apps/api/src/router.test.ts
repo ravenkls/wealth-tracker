@@ -162,7 +162,23 @@ it("guards Analysis reads and refreshes and keeps pagination scoped to the signe
   expect(analysis.sync).not.toHaveBeenCalled();
   const caller = app.createCaller({ user, trustedOrigin: true });
   await caller.analysis.transactions({ cursor: "page" });
-  expect(analysis.list).toHaveBeenCalledWith("owner", "page");
+  expect(analysis.list).toHaveBeenCalledWith("owner", "page", undefined);
+  await caller.analysis.transactions({ from: "2026-09-01", to: "2026-09-30" });
+  expect(analysis.list).toHaveBeenLastCalledWith("owner", undefined, {
+    from: "2026-09-01",
+    to: "2026-09-30",
+  });
+  await expect(caller.analysis.transactions({ from: "2026-09-01" })).rejects.toThrow(
+    "Choose a date range",
+  );
+  await expect(caller.analysis.insights({ from: "2026-10-01", to: "2026-09-01" })).rejects.toThrow(
+    "Choose a date range",
+  );
+  await expect(
+    app
+      .createCaller({ user: null, trustedOrigin: true })
+      .analysis.insights({ from: "2026-09-01", to: "2026-09-30" }),
+  ).rejects.toThrow("Sign in");
   await caller.analysis.refresh();
   expect(analysis.sync).toHaveBeenCalledWith("owner");
 });

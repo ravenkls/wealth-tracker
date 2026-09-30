@@ -40,9 +40,13 @@ export class EnduteTransactionsService {
     await this.store.transactions.register(owner);
     return this.publicState(await this.store.transactions.state(owner));
   }
-  async list(owner: string, cursor?: string) {
+  async list(
+    owner: string,
+    cursor?: string,
+    range?: import("../storage/endute-transactions").TransactionRange,
+  ) {
     await this.connection(owner);
-    return this.store.transactions.list(owner, cursor);
+    return this.store.transactions.list(owner, cursor, 50, range);
   }
   async sync(owner: string, background = false) {
     let bank;

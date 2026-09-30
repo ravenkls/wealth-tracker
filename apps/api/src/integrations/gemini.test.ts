@@ -13,13 +13,10 @@ const row = {
 it("submits batch-only structured classification without financial identifiers", async () => {
   const fetcher = vi.fn<typeof fetch>(async () => Response.json({ name: "batches/batch-123" }));
   const client = new GeminiBatchClient(async () => "secret-key", "gemini-3.1-flash-lite", fetcher);
-  expect(
-    await client.submit(
-      "job",
-      [{ id: "groceries", name: "Groceries", description: "Supermarkets" }],
-      [{ key: "tx_0", row }],
-    ),
-  ).toBe("batches/batch-123");
+  const legacyCategories = [{ id: "groceries", name: "Groceries", description: "Supermarkets" }];
+  expect(await client.submit("job", legacyCategories, [{ key: "tx_0", row }])).toBe(
+    "batches/batch-123",
+  );
   expect(fetcher.mock.calls[0]![0]).toContain(":batchGenerateContent");
   const body = JSON.parse(fetcher.mock.calls[0]![1]!.body as string);
   expect(
@@ -29,6 +26,11 @@ it("submits batch-only structured classification without financial identifiers",
   expect(JSON.stringify(body)).not.toContain("Private account name");
   expect(JSON.stringify(body)).not.toContain("private-reference");
   expect(JSON.stringify(body)).not.toContain("secret-key");
+  const prompt = JSON.parse(
+    body.batch.inputConfig.requests.requests[0].request.contents[0].parts[0].text,
+  );
+  expect(prompt.categories).toEqual([{ id: "groceries", name: "Groceries" }]);
+  expect(JSON.stringify(body)).not.toContain("Supermarkets");
 });
 it("accepts null and skips malformed, truncated and duplicate classifications", async () => {
   const response = (entries: unknown, finishReason = "STOP") => ({
@@ -69,7 +71,7 @@ it("marks ambiguous submission errors without automatically repeating the POST",
   await expect(
     new GeminiBatchClient(async () => "key", undefined, fetcher).submit(
       "job",
-      [{ id: "food", name: "Food", description: "" }],
+      [{ id: "food", name: "Food" }],
       [{ key: "tx_0", row }],
     ),
   ).rejects.toMatchObject({ uncertain: true });

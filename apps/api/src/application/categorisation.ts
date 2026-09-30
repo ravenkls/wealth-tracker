@@ -1,3 +1,5 @@
+import { transactionInsights } from "./transaction-insights";
+import type { TransactionRange } from "../storage/endute-transactions";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { GeminiError, type CategorisationProvider } from "../integrations/gemini";
@@ -15,7 +17,6 @@ export const categoriesInput = z
         z.object({
           id: z.uuid(),
           name: z.string().trim().min(1).max(80),
-          description: z.string().trim().max(500),
         }),
       )
       .max(50),
@@ -58,6 +59,7 @@ export class CategorisationService {
     );
     return {
       ...config,
+      categories: config.categories.map(({ id, name }) => ({ id, name })),
       configured: this.configured,
       queued: pending.items.filter((i) => !processing.has(i.sk)).length,
       moreQueued: pending.more,
@@ -110,9 +112,9 @@ export class CategorisationService {
       config,
     );
   }
-  async list(owner: string, cursor?: string) {
+  async list(owner: string, cursor?: string, range?: TransactionRange, limit = 50) {
     await this.requireConnection(owner);
-    const page = await this.store.transactions.list(owner, cursor);
+    const page = await this.store.transactions.list(owner, cursor, limit, range);
     const ids = page.rows.map((row) => `${row.accountId}#${row.id}`);
     const [config, classifications, identities] = await Promise.all([
       this.store.categorisation.config(owner),
@@ -141,6 +143,10 @@ export class CategorisationService {
         };
       }),
     };
+  }
+  async insights(owner: string, range: TransactionRange, cursor?: string) {
+    const page = await this.list(owner, cursor, range, 500);
+    return { ...transactionInsights(page.rows), nextCursor: page.nextCursor };
   }
   async work(owner: string) {
     if (((await this.store.categorisation.workState(owner))?.retryAfter ?? 0) > Date.now()) return;

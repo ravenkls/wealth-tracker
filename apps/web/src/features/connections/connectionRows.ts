@@ -1,5 +1,7 @@
 import {
   pence,
+  accountKindLabels,
+  type Snapshot,
   type Pence,
   type PublicConnection,
   type PublicBankConnection,
@@ -16,6 +18,7 @@ export interface ConnectionRow {
   fetchedAt: string | null;
   trading?: PublicConnection;
   bankId?: string;
+  manual?: ManualAccount;
 }
 
 export function tradingRows(connection: PublicConnection): ConnectionRow[] {
@@ -107,4 +110,34 @@ export function bankRows(
       bankId: connection.id,
     }));
   });
+}
+
+export function manualRows(
+  accounts: (ManualAccount & { updatedAt?: string })[],
+  snapshots: Pick<Snapshot, "month" | "updatedAt" | "balances">[],
+  showArchived = false,
+): ConnectionRow[] {
+  const latest = [...snapshots].sort((a, b) => b.month.localeCompare(a.month));
+  return accounts
+    .filter((account) => !account.automation && (showArchived || !account.archived))
+    .map((account) => {
+      const snapshot = latest.find((item) =>
+        item.balances.some((balance) => balance.accountId === account.id),
+      );
+      const savedBalance = snapshot?.balances.find(
+        (balance) => balance.accountId === account.id,
+      )?.balance;
+      return {
+        id: account.id,
+        name: account.name,
+        provider: "Manual",
+        type: accountKindLabels[account.kind],
+        total: account.workingBalance ?? savedBalance ?? null,
+        fetchedAt:
+          account.workingBalance != null
+            ? (account.updatedAt ?? null)
+            : (snapshot?.updatedAt ?? account.updatedAt ?? null),
+        manual: account,
+      };
+    });
 }

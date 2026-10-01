@@ -226,7 +226,7 @@ export class WealthService {
       bankConnections: banks
         .filter((record) => !record.data.disconnected)
         .map((record) => publicBankConnection(record.data)),
-      accounts: accounts.map((record) => record.data),
+      accounts: accounts.map((record) => ({ ...record.data, updatedAt: record.updatedAt })),
       connections: connections
         .filter((record) => !record.data.disconnected)
         .map((record) => publicConnection(record.data)),

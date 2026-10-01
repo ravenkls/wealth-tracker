@@ -12,15 +12,27 @@ import {
   SvgIcon,
   Typography,
 } from "@mui/material";
-import { formatGbp } from "@wealth/domain";
+import { formatGbp, type ManualAccount } from "@wealth/domain";
 import { ConnectMonzoDialog, ManageBankDialog } from "./MonzoDialogs";
 import { ConnectTradingDialog, ManageTradingDialog } from "./TradingDialogs";
-import { bankRows, tradingRows, type ConnectionRow } from "./connectionRows";
+import { bankRows, tradingRows, manualRows, type ConnectionRow } from "./connectionRows";
 import { moneyGroupTotal } from "../../components/table/groupTotals";
 import { DataTable } from "../../components/table/DataTable";
+import { useTableSave } from "../../components/table/useTableSave";
+import { api } from "../../lib/api";
 import type { AppData } from "../../lib/data";
 
-export function ConnectionsPanel({ data }: { readonly data: AppData }) {
+export function ConnectionsPanel({
+  data,
+  onAddManual,
+  onEditManual,
+}: {
+  readonly data: AppData;
+  readonly onAddManual: () => void;
+  readonly onEditManual: (account: ManualAccount) => void;
+}) {
+  const [showArchived, setShowArchived] = useState(false);
+  const saving = useTableSave();
   const [enduteConnect, setEnduteConnect] = useState(false);
   const [open, setOpen] = useState(false);
   const [connectAnchor, setConnectAnchor] = useState<HTMLElement | null>(null);
@@ -45,10 +57,11 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
   const rows = [
     ...data.connections.flatMap(tradingRows),
     ...bankRows(data.bankConnections, data.accounts),
+    ...manualRows(data.accounts, data.snapshots, showArchived),
   ];
   return (
     <>
-      <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, mt: 3 }}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 } }}>
         <Stack
           direction="row"
           sx={{
@@ -60,30 +73,37 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
           }}
         >
           <Typography component="h2" sx={{ fontWeight: 550, fontSize: 17 }}>
-            Automated tracking accounts
+            Tracked accounts
           </Typography>
-          <Button
-            id="connect-account-button"
-            variant="outlined"
-            endIcon={
-              <SvgIcon>
-                <path
-                  d="m7 10 5 5 5-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </SvgIcon>
-            }
-            aria-haspopup="menu"
-            aria-controls={connectAnchor ? "connect-account-menu" : undefined}
-            aria-expanded={!!connectAnchor}
-            onClick={(event) => setConnectAnchor(event.currentTarget)}
-          >
-            Connect Account
-          </Button>
+          <Stack direction="row" spacing={1}>
+            {data.accounts.some((account) => !account.automation && account.archived) && (
+              <Button size="small" onClick={() => setShowArchived((value) => !value)}>
+                {showArchived ? "Hide archived" : "Show archived"}
+              </Button>
+            )}
+            <Button
+              id="connect-account-button"
+              variant="outlined"
+              endIcon={
+                <SvgIcon>
+                  <path
+                    d="m7 10 5 5 5-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </SvgIcon>
+              }
+              aria-haspopup="menu"
+              aria-controls={connectAnchor ? "connect-account-menu" : undefined}
+              aria-expanded={!!connectAnchor}
+              onClick={(event) => setConnectAnchor(event.currentTarget)}
+            >
+              Add account
+            </Button>
+          </Stack>
         </Stack>
         {callbackError && (
           <Alert
@@ -98,13 +118,15 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
             URI, then connect again.
           </Alert>
         )}
+        {saving.status}
         <DataTable
           id="connections"
-          label="Automated tracking accounts"
+          label="Tracked accounts"
           data={data}
           rows={rows}
           rowId={(row) => row.id}
           reorder
+          disabled={saving.disabled}
           columns={[
             {
               id: "name",
@@ -139,7 +161,7 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
             },
             {
               id: "valued",
-              label: "Valued",
+              label: "Last updated",
               value: (row) => row.fetchedAt,
               render: (row) =>
                 row.fetchedAt ? new Date(row.fetchedAt).toLocaleString("en-GB") : "—",
@@ -151,7 +173,7 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
                 row.trading
                   ? (row.trading.history.error ??
                     (row.trading.history.completedAt ? "Up to date" : "Reading…"))
-                  : "Not required",
+                  : "—",
               render: (row) => (
                 <Typography
                   sx={{ fontSize: 12, maxWidth: 240, whiteSpace: "normal" }}
@@ -160,9 +182,24 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
                   {row.trading
                     ? (row.trading.history.error ??
                       (row.trading.history.completedAt ? "Up to date" : "Reading…"))
-                    : "Not required"}
+                    : "—"}
                 </Typography>
               ),
+            },
+            {
+              id: "status",
+              label: "Status",
+              groupable: true,
+              value: (row) => {
+                if (row.manual?.archived) return "Archived";
+                if (row.trading?.disconnected) return "Disconnected";
+                const status = data.bankConnections.find(
+                  (connection) => connection.id === row.bankId,
+                )?.status;
+                if (status === "reconnect") return "Reconnect";
+                if (status === "awaiting-approval") return "Awaiting approval";
+                return "Active";
+              },
             },
             {
               id: "actions",
@@ -173,6 +210,7 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
               render: (row) => (
                 <IconButton
                   size="small"
+                  disabled={saving.disabled}
                   aria-label={`Actions for ${row.name}${row.detail ? ` (${row.detail})` : ""}`}
                   aria-haspopup="menu"
                   aria-controls={rowMenu?.row.id === row.id ? "connection-actions-menu" : undefined}
@@ -197,6 +235,14 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
         onClose={() => setConnectAnchor(null)}
         slotProps={{ list: { "aria-labelledby": "connect-account-button" } }}
       >
+        <MenuItem
+          onClick={() => {
+            setConnectAnchor(null);
+            onAddManual();
+          }}
+        >
+          Add manual account
+        </MenuItem>
         <MenuItem
           onClick={() => {
             setConnectAnchor(null);
@@ -228,15 +274,48 @@ export function ConnectionsPanel({ data }: { readonly data: AppData }) {
         open={!!rowMenu}
         onClose={() => setRowMenu(null)}
       >
-        <MenuItem
-          onClick={() => {
-            if (rowMenu?.row.trading) setTradingId(rowMenu.row.trading.id);
-            else if (rowMenu?.row.bankId) setMonzoId(rowMenu.row.bankId);
-            setRowMenu(null);
-          }}
-        >
-          {`Manage ${rowMenu?.row.provider ?? "connection"}`}
-        </MenuItem>
+        {rowMenu?.row.manual ? (
+          [
+            <MenuItem
+              key="edit"
+              onClick={() => {
+                if (rowMenu.row.manual) onEditManual(rowMenu.row.manual);
+                setRowMenu(null);
+              }}
+            >
+              Edit account
+            </MenuItem>,
+            <MenuItem
+              key="archive"
+              onClick={() => {
+                const account = rowMenu.row.manual;
+                setRowMenu(null);
+                if (account)
+                  void saving
+                    .save(() =>
+                      api.accounts.save.mutate({
+                        ...account,
+                        archived: !account.archived,
+                        expectedVersion: account.version,
+                      }),
+                    )
+                    .catch(() => {});
+              }}
+            >
+              {rowMenu.row.manual.archived ? "Restore account" : "Archive account"}
+            </MenuItem>,
+          ]
+        ) : (
+          <MenuItem
+            onClick={() => {
+              if (rowMenu?.row.trading) setTradingId(rowMenu.row.trading.id);
+              else if (rowMenu?.row.bankId) setMonzoId(rowMenu.row.bankId);
+              setRowMenu(null);
+            }}
+          >
+            {`Manage ${rowMenu?.row.provider ?? "connection"}`}
+          </MenuItem>
+        )}
       </Menu>
       {monzoConnect !== null && (
         <ConnectMonzoDialog

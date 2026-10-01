@@ -1,11 +1,12 @@
 import { expect, it } from "vitest";
 import {
   pence,
+  month,
   type PublicConnection,
   type PublicBankConnection,
   type ManualAccount,
 } from "@wealth/domain";
-import { bankRows, tradingRows } from "./connectionRows";
+import { bankRows, tradingRows, manualRows } from "./connectionRows";
 
 const connection: PublicConnection = {
   id: "isa",
@@ -142,4 +143,77 @@ it("labels Endute rows and uses each account's cached balance timestamp", () => 
       detail: "Renew bank consent",
     },
   ]);
+});
+
+it("combines manual account types without duplicating automated accounts and hides archived accounts", () => {
+  const accounts: ManualAccount[] = [
+    {
+      id: "cash",
+      name: "Cash",
+      kind: "cash",
+      archived: false,
+      version: 1,
+      workingBalance: pence(0),
+    },
+    {
+      id: "debt",
+      name: "Card",
+      kind: "debt",
+      archived: false,
+      version: 1,
+      workingBalance: pence(-500),
+    },
+    { id: "pension", name: "Pension", kind: "pension", archived: true, version: 1 },
+    {
+      id: "bank",
+      name: "Bank",
+      kind: "cash",
+      archived: false,
+      version: 1,
+      automation: { provider: "endute", connectionId: "endute", externalId: "bank" },
+    },
+  ];
+  expect(
+    manualRows(accounts, []).map((row) => [row.id, row.provider, row.type, row.total]),
+  ).toEqual([
+    ["cash", "Manual", "Cash", 0],
+    ["debt", "Manual", "Debt", -500],
+  ]);
+  expect(manualRows(accounts, [], true).map((row) => row.id)).toEqual(["cash", "debt", "pension"]);
+});
+it("uses the latest applicable snapshot regardless of ordering and prioritises a saved working balance", () => {
+  const account = {
+    id: "manual",
+    name: "Savings",
+    kind: "cash" as const,
+    archived: false,
+    version: 1,
+    updatedAt: "2026-10-01T12:00:00Z",
+  };
+  const snapshots = [
+    {
+      month: month("2026-09"),
+      updatedAt: "2026-09-30T12:00:00Z",
+      balances: [
+        { accountId: "manual", name: "Savings", kind: "cash" as const, balance: pence(200) },
+      ],
+    },
+    { month: month("2026-10"), updatedAt: "2026-10-01T13:00:00Z", balances: [] },
+    {
+      month: month("2026-08"),
+      updatedAt: "2026-08-31T12:00:00Z",
+      balances: [
+        { accountId: "manual", name: "Savings", kind: "cash" as const, balance: pence(100) },
+      ],
+    },
+  ];
+  expect(manualRows([account], snapshots)[0]).toMatchObject({
+    total: 200,
+    fetchedAt: snapshots[0]!.updatedAt,
+  });
+  expect(manualRows([{ ...account, workingBalance: pence(0) }], snapshots)[0]).toMatchObject({
+    total: 0,
+    fetchedAt: account.updatedAt,
+  });
+  expect(manualRows([account], [])[0]).toMatchObject({ total: null, fetchedAt: account.updatedAt });
 });

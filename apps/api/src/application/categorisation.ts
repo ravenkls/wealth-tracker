@@ -125,9 +125,11 @@ export class CategorisationService {
       ...page,
       rows: page.rows.map((row) => {
         const result = classifications.get(`${row.accountId}#${row.id}`);
+        const identity = identities.get(`${row.accountId}#${row.id}`);
         const category = config.categories.find((c) => c.id === result?.categoryId);
         return {
           ...row,
+          excluded: identity?.excluded ?? false,
           customCategory: category?.name ?? null,
           classification: result ? { ...result, categoryId: category?.id ?? null } : null,
           categorisationStatus: result?.failed
@@ -136,8 +138,7 @@ export class CategorisationService {
               ? "pending"
               : result.source === "manual"
                 ? "manual"
-                : result.generation !== config.generation ||
-                    result.digest !== identities.get(`${row.accountId}#${row.id}`)?.digest
+                : result.generation !== config.generation || result.digest !== identity?.digest
                   ? "pending"
                   : "complete",
         };

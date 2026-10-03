@@ -2,6 +2,7 @@ import Decimal from "decimal.js";
 import type { StoredEnduteTransaction } from "../storage/endute-transactions";
 
 type InsightTransaction = StoredEnduteTransaction & {
+  excluded: boolean;
   customCategory: string | null;
   classification: { categoryId: string | null } | null;
 };
@@ -33,8 +34,8 @@ export function transactionInsights(rows: readonly InsightTransaction[]): Transa
   const empty = (): FlowBucket => ({ moneyIn: 0, moneyOut: 0, count: 0 });
   const add = (a: number, b: number) => new Decimal(a).plus(b).toNumber();
   for (const row of rows) {
-    // Sandbox accounts must not inflate a user's financial analysis.
-    if (row.sandbox) continue;
+    // Sandbox accounts and user-excluded rows must not inflate a user's financial analysis.
+    if (row.sandbox || row.excluded) continue;
     let currency = currencies.get(row.currency);
     if (!currency) {
       currency = { totals: empty(), days: new Map(), categories: new Map(), merchants: new Map() };

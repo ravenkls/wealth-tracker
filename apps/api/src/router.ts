@@ -59,7 +59,7 @@ export interface ApiDependencies {
     CategorisationService,
     "status" | "save" | "recategorise" | "manual" | "list" | "insights"
   >;
-  readonly analysis?: Pick<EnduteTransactionsService, "status" | "list" | "sync">;
+  readonly analysis?: Pick<EnduteTransactionsService, "status" | "list" | "sync" | "exclude">;
   readonly endute?: Pick<EnduteService, "connect" | "refresh" | "select" | "disconnect">;
   readonly monzo?: Pick<MonzoService, "start" | "refresh" | "select" | "disconnect">;
   readonly isDatabaseReady: () => Promise<boolean>;
@@ -226,6 +226,7 @@ export function createRouter(d: ApiDependencies) {
                     ...page,
                     rows: page.rows.map((row) => ({
                       ...row,
+                      excluded: false,
                       customCategory: null,
                       classification: null,
                       categorisationStatus: "pending",
@@ -247,6 +248,9 @@ export function createRouter(d: ApiDependencies) {
       refresh: protectedProcedure.mutation(({ ctx }) =>
         run(() => analysis().sync(ctx.user.userId)),
       ),
+      exclude: protectedProcedure
+        .input(z.object({ accountId: z.uuid(), transactionId: z.uuid(), excluded: z.boolean() }))
+        .mutation(({ ctx, input }) => run(() => analysis().exclude(ctx.user.userId, input))),
     }),
     categories: router({
       status: protectedProcedure.query(({ ctx }) =>

@@ -149,6 +149,8 @@ it("guards Analysis reads and refreshes and keeps pagination scoped to the signe
       async () => ({ rows: [], nextCursor: null }),
     ),
     sync: vi.fn<import("./application/endute-transactions").EnduteTransactionsService["sync"]>(),
+    exclude:
+      vi.fn<import("./application/endute-transactions").EnduteTransactionsService["exclude"]>(),
   };
   const app = createRouter({ ...mockServices(), analysis, isDatabaseReady: async () => true });
   const user = { userId: "owner", profile: { name: "User", email: "user@example.test" } };

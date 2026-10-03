@@ -48,6 +48,17 @@ export class EnduteTransactionsService {
     await this.connection(owner);
     return this.store.transactions.list(owner, cursor, 50, range);
   }
+  async exclude(
+    owner: string,
+    input: { accountId: string; transactionId: string; excluded: boolean },
+  ) {
+    await this.connection(owner);
+    await this.store.transactions.exclude(
+      owner,
+      `${input.accountId}#${input.transactionId}`,
+      input.excluded,
+    );
+  }
   async sync(owner: string, background = false) {
     let bank;
     try {

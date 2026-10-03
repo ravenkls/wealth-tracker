@@ -4,7 +4,7 @@ import { AnalysisInsights } from "./AnalysisInsights";
 import { monthRange } from "./insightsModel";
 import { useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Box, Button, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, Checkbox, Stack, Typography } from "@mui/material";
 import { DataTable } from "../../components/table/DataTable";
 import { Icon } from "../../components/Icon";
 import { PageHeading } from "../../components/PageHeading";
@@ -42,6 +42,15 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
         client.invalidateQueries({ queryKey: ["endute-transactions"] }),
       ]);
     },
+  });
+  const exclude = useMutation({
+    mutationFn: (input: { accountId: string; transactionId: string; excluded: boolean }) =>
+      api.analysis.exclude.mutate(input),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: ["endute-transactions"] }),
+        client.invalidateQueries({ queryKey: ["transaction-insights"] }),
+      ]),
   });
   const retryAt = status.data?.retryAt;
   const waiting = status.data?.retrying ?? false;
@@ -85,7 +94,7 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
             {waiting && ` Retry after ${new Date(retryAt!).toLocaleTimeString("en-GB")}.`}
           </Alert>
         )}
-        {(transactions.isError || status.isError || refresh.isError) && (
+        {(transactions.isError || status.isError || refresh.isError || exclude.isError) && (
           <Alert
             severity="error"
             action={
@@ -99,7 +108,7 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
               </Button>
             }
           >
-            {errorMessage(refresh.error ?? transactions.error ?? status.error)}
+            {errorMessage(exclude.error ?? refresh.error ?? transactions.error ?? status.error)}
           </Alert>
         )}
       </Stack>
@@ -217,7 +226,11 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
               <Box
                 sx={{
                   fontWeight: 600,
-                  color: Number(row.amount) > 0 ? "success.main" : "text.primary",
+                  color: row.excluded
+                    ? "text.disabled"
+                    : Number(row.amount) > 0
+                      ? "success.main"
+                      : "text.primary",
                 }}
               >
                 {Number(row.amount) > 0 ? "+" : ""}
@@ -226,6 +239,33 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
                   currency: row.currency,
                 }).format(Number(row.amount))}
               </Box>
+            ),
+          },
+          {
+            id: "excluded",
+            label: "Exclude",
+            minWidth: 90,
+            align: "right",
+            value: (row) => (row.excluded ? "Excluded" : null),
+            sortable: false,
+            render: (row) => (
+              <Checkbox
+                size="small"
+                checked={row.excluded}
+                disabled={
+                  exclude.isPending &&
+                  exclude.variables.accountId === row.accountId &&
+                  exclude.variables.transactionId === row.id
+                }
+                slotProps={{ input: { "aria-label": `Exclude ${row.description} from analysis` } }}
+                onChange={(event) =>
+                  exclude.mutate({
+                    accountId: row.accountId,
+                    transactionId: row.id,
+                    excluded: event.target.checked,
+                  })
+                }
+              />
             ),
           },
           {

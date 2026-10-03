@@ -6,17 +6,20 @@ function row(
   currency = "GBP",
   categoryId: string | null = "food",
   sandbox = false,
+  excluded = false,
 ) {
   return {
     amount,
     currency,
     booking_date: "2026-09-10",
     sandbox,
+    excluded,
     counterparty: "Counterparty",
     enrichment: { merchant_name: "Shop" },
     classification: categoryId ? { categoryId } : null,
     customCategory: categoryId ? "Food" : null,
   } as StoredEnduteTransaction & {
+    excluded: boolean;
     customCategory: string | null;
     classification: { categoryId: string | null } | null;
   };
@@ -29,6 +32,7 @@ it("keeps currencies separate and counts refunds as money in without subtracting
     row("-12.50", "GBP", null),
     row("-10.00", "EUR"),
     row("-999.00", "GBP", "food", true),
+    row("-500.00", "GBP", "food", false, true),
     row("-1.123", "KWD"),
   ]);
   const gbp = result.currencies.find((value) => value.currency === "GBP")!;

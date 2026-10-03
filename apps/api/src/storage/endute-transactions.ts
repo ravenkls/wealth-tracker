@@ -211,9 +211,12 @@ export class EnduteTransactionStore {
           });
         writes.push(
           {
-            Put: {
+            // Update keeps user-set attributes such as exclusion across re-imports.
+            Update: {
               TableName: this.table,
-              Item: { pk: this.ids(owner), sk: id, rowKey, digest: fingerprints.get(id) },
+              Key: { pk: this.ids(owner), sk: id },
+              UpdateExpression: "SET rowKey = :rowKey, digest = :digest",
+              ExpressionAttributeValues: { ":rowKey": rowKey, ":digest": fingerprints.get(id) },
             },
           },
           { Put: { TableName: this.table, Item: { pk: this.rows(owner), sk: rowKey, data: row } } },
@@ -235,7 +238,7 @@ export class EnduteTransactionStore {
     }
   }
   async identities(owner: string, ids: string[]) {
-    const result = new Map<string, { rowKey: string; digest: string }>();
+    const result = new Map<string, { rowKey: string; digest: string; excluded: boolean }>();
     for (let offset = 0; offset < ids.length; offset += 100) {
       let keys = [...new Set(ids.slice(offset, offset + 100))].map((sk) => ({
         pk: this.ids(owner),
@@ -251,6 +254,7 @@ export class EnduteTransactionStore {
           result.set(item.sk as string, {
             rowKey: item.rowKey as string,
             digest: item.digest as string,
+            excluded: Boolean(item.excluded),
           });
         keys = (page.UnprocessedKeys?.[this.table]?.Keys ?? []) as typeof keys;
         if (keys.length) await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
@@ -258,6 +262,23 @@ export class EnduteTransactionStore {
       if (keys.length) throw new Error("Transaction identities could not be read.");
     }
     return result;
+  }
+  async exclude(owner: string, id: string, excluded: boolean) {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.table,
+          Key: { pk: this.ids(owner), sk: id },
+          UpdateExpression: "SET excluded = :excluded",
+          ConditionExpression: "attribute_exists(pk)",
+          ExpressionAttributeValues: { ":excluded": excluded },
+        }),
+      );
+    } catch (error) {
+      if (hasErrorName(error, "ConditionalCheckFailedException"))
+        throw new InputError("Transaction not found.");
+      throw error;
+    }
   }
   async readRows(owner: string, keys: string[]) {
     const rows = new Map<string, StoredEnduteTransaction>();

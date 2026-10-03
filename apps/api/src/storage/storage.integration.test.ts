@@ -1926,9 +1926,28 @@ it("queries the selected month across pages without leaking adjacent dates or an
     },
     false,
   );
+  const excluded = enduteTransaction(1, "2026-09-01");
+  const exclusion = { accountId: "bank", transactionId: excluded.id, excluded: true };
+  await expect(f.transactions.exclude("another-owner", exclusion)).rejects.toThrow(
+    "Connect Endute",
+  );
+  await expect(
+    store.transactions.exclude("another-owner", `bank#${excluded.id}`, true),
+  ).rejects.toThrow("Transaction not found");
+  await f.transactions.exclude(f.owner, exclusion);
+  // A changed re-import must keep the user's exclusion.
+  f.transactionProvider.transactions.mockResolvedValue({
+    results: [{ ...excluded, description: "Changed" }],
+    next: null,
+  });
+  await f.transactions.sync(f.owner);
   const insights = await service.insights(f.owner, range);
   expect(insights.nextCursor).toBeNull();
-  expect(insights.currencies[0]?.totals).toEqual({ moneyIn: 0, moneyOut: 65 * 1280, count: 65 });
+  expect(insights.currencies[0]?.totals).toEqual({ moneyIn: 0, moneyOut: 64 * 1280, count: 64 });
+  const changed = (await service.list(f.owner, undefined, range, 100)).rows.find(
+    (row) => row.id === excluded.id,
+  );
+  expect(changed).toMatchObject({ description: "Changed", excluded: true });
   expect(insights.currencies[0]?.categories[0]?.name).toBe("Uncategorised");
   await expect(service.insights("another-owner", range)).rejects.toThrow("Connect Endute");
 });

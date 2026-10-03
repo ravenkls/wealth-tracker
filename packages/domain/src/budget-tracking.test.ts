@@ -28,9 +28,9 @@ it("paces the current month and treats past months as complete", () => {
   expect(monthPace(month("2026-08"), "2026-09-15")).toBe(1);
   expect(monthPace(month("2026-10"), "2026-09-15")).toBe(0);
 });
-it("tracks linked categories, year-to-date annual lines and unbudgeted spend", () => {
+it("tracks monthly lines of linked categories and ignores annual lines", () => {
   const result = trackBudget({
-    plan,
+    plan: { expenses: [...plan.expenses, line("Transport", 50000, "annual")] } as BudgetPlan,
     links: [
       { id: "groceries", budgetCategory: "FOOD" },
       { id: "takeaway", budgetCategory: "Food" },
@@ -41,35 +41,28 @@ it("tracks linked categories, year-to-date annual lines and unbudgeted spend", (
     ],
     month: month("2026-03"),
     today: "2026-03-15",
-    monthSpend: new Map([
+    spend: new Map([
       ["groceries", 15000],
       ["takeaway", 5000],
-      ["trains", 9000],
+      ["trains", 4000],
       ["cover", 60000],
       ["stale", 700],
       ["fun", 300],
       ["uncategorised", 1000],
     ]),
-    yearSpend: new Map([["cover", 60000]]),
   });
+  expect(result.categories.map((c) => c.name)).toEqual(["Food", "Transport", "Gifts"]);
   const byName = Object.fromEntries(result.categories.map((c) => [c.name, c]));
   expect(byName.Food).toMatchObject({
-    period: "month",
     budget: 40000,
     allowance: 19355,
     spent: 20000,
     status: "ahead",
   });
-  expect(byName.Transport).toMatchObject({ budget: 10000, spent: 9000, status: "ahead" });
-  expect(byName.Insurance).toMatchObject({
-    period: "year",
-    budget: 60000,
-    spent: 60000,
-    status: "on-track",
-  });
+  expect(byName.Transport).toMatchObject({ budget: 10000, spent: 4000, status: "on-track" });
   expect(byName.Gifts?.status).toBe("unlinked");
-  expect(result).toMatchObject({ onTrack: 1, tracked: 3, unbudgeted: 2000 });
-  expect(result.score).toBeCloseTo(5000 / 55000);
+  expect(result).toMatchObject({ onTrack: 1, tracked: 2, unbudgeted: 62000 });
+  expect(result.score).toBeCloseTo(10000 / 50000);
 });
 it("marks overspending and has no score without links", () => {
   const over = trackBudget({
@@ -77,8 +70,7 @@ it("marks overspending and has no score without links", () => {
     links: [{ id: "trains", budgetCategory: "Transport" }],
     month: month("2026-02"),
     today: "2026-03-01",
-    monthSpend: new Map([["trains", 10001]]),
-    yearSpend: new Map(),
+    spend: new Map([["trains", 10001]]),
   });
   expect(over.categories.find((c) => c.name === "Transport")?.status).toBe("over");
   expect(over.score).toBe(0);
@@ -88,8 +80,7 @@ it("marks overspending and has no score without links", () => {
       links: [],
       month: month("2026-02"),
       today: "2026-03-01",
-      monthSpend: new Map(),
-      yearSpend: new Map(),
+      spend: new Map(),
     }).score,
   ).toBeNull();
 });

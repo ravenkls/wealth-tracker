@@ -17,17 +17,6 @@ const statuses = {
   ahead: { label: "Ahead of pace", colour: "warning" },
   over: { label: "Over budget", colour: "error" },
 } as const;
-function spendByCategory(
-  pages: Parameters<typeof mergeInsights>[0],
-  range: { from: string; to: string },
-) {
-  return new Map(
-    mergeInsights(pages, "GBP", range).categories.map((category) => [
-      category.id,
-      category.moneyOut,
-    ]),
-  );
-}
 export function BudgetTracking({
   plan,
   selectedMonth,
@@ -38,36 +27,24 @@ export function BudgetTracking({
   readonly links: readonly { id: string; budgetCategory: string | null }[];
 }) {
   const range = monthRange(selectedMonth);
-  const yearRange = { from: `${selectedMonth.slice(0, 4)}-01-01`, to: range.to };
   const [today] = useState(() => new Date().toLocaleDateString("en-CA"));
-  const draft = plan
-    ? trackBudget({
-        plan,
-        links,
-        month: month(selectedMonth),
-        today,
-        monthSpend: new Map(),
-        yearSpend: new Map(),
-      })
-    : null;
-  const needsYear = !!draft?.categories.some(
-    (category) => category.period === "year" && category.status !== "unlinked",
-  );
-  const monthInsights = useInsights(range, !!draft?.tracked);
-  const yearInsights = useInsights(yearRange, needsYear);
-  const ready = monthInsights.ready && (!needsYear || yearInsights.ready);
-  const error = monthInsights.query.error ?? yearInsights.query.error;
+  const track = (spend: ReadonlyMap<string, number>) =>
+    trackBudget({ plan: plan!, links, month: month(selectedMonth), today, spend });
+  const draft = plan ? track(new Map()) : null;
+  const insights = useInsights(range, !!draft?.tracked);
+  const error = insights.query.error;
   const tracking =
-    plan && ready
-      ? trackBudget({
-          plan,
-          links,
-          month: month(selectedMonth),
-          today,
-          monthSpend: spendByCategory(monthInsights.pages, range),
-          yearSpend: needsYear ? spendByCategory(yearInsights.pages, yearRange) : new Map(),
-        })
+    plan && insights.ready
+      ? track(
+          new Map(
+            mergeInsights(insights.pages, "GBP", range).categories.map((category) => [
+              category.id,
+              category.moneyOut,
+            ]),
+          ),
+        )
       : null;
+  const ready = !!tracking;
   const unlinked = draft?.categories.filter((category) => category.status === "unlinked") ?? [];
   return (
     <Paper
@@ -138,7 +115,7 @@ export function BudgetTracking({
       <Box sx={{ borderTop: 1, borderColor: "divider", p: { xs: 2, sm: 2.5 } }}>
         {!draft?.categories.length ? (
           <Typography color="text.secondary" sx={{ fontSize: 13 }}>
-            Give your budget’s expenses categories to track spending against them.
+            Give your budget’s monthly expenses categories to track spending against them.
           </Typography>
         ) : !draft.tracked ? (
           <Typography color="text.secondary" sx={{ fontSize: 13 }}>
@@ -190,9 +167,8 @@ function TrackedRow({ category }: { readonly category: TrackedCategory }) {
             {category.name}
           </Typography>
           <Typography color="text.secondary" sx={{ fontSize: 12 }}>
-            {formatGbp(category.spent)} of {formatGbp(category.budget)}
-            {category.period === "year" && " this year"} · {formatGbp(pence(Math.abs(remaining)))}{" "}
-            {remaining >= 0 ? "left" : "over"}
+            {formatGbp(category.spent)} of {formatGbp(category.budget)} ·{" "}
+            {formatGbp(pence(Math.abs(remaining)))} {remaining >= 0 ? "left" : "over"}
           </Typography>
         </Box>
         <Chip size="small" variant="outlined" color={status.colour} label={status.label} />

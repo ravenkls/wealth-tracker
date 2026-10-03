@@ -26,12 +26,3 @@ export function normalizeBudgetCategories(plan: BudgetPlan): BudgetPlan {
     savingsAllocations: plan.savingsAllocations.map(normalize),
   };
 }
-
-export function expenseCategories(plan: Pick<BudgetPlan, "expenses">) {
-  const names: string[] = [];
-  for (const line of plan.expenses) {
-    const name = canonicalCategory(line.category, names);
-    if (name && !names.includes(name)) names.push(name);
-  }
-  return names;
-}

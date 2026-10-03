@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { createLocalDatabase } from "../local/database";
 import { DynamoAuthStore } from "../auth/store";
 import { WealthStore } from "./records";
+import { hasErrorName } from "./errors";
 import { month, pence } from "@wealth/domain";
 import type { Snapshot } from "@wealth/domain";
 const database = createLocalDatabase(`http://127.0.0.1:${process.env.DYNAMODB_PORT ?? 8000}`);
@@ -1682,11 +1683,10 @@ it("rejects imports from expired leases and keys rotated during a transaction re
   };
   await expect(store.transactions.putPage(f.owner, [row], "old")).rejects.toHaveProperty(
     "name",
-    "TransactionCanceledException",
+    "ConflictError",
   );
-  await expect(store.transactions.checkpoint(f.owner, old!, true)).rejects.toHaveProperty(
-    "name",
-    "ConditionalCheckFailedException",
+  await expect(store.transactions.checkpoint(f.owner, old!, true)).rejects.toSatisfy((error) =>
+    hasErrorName(error, "ConditionalCheckFailedException"),
   );
   await store.transactions.checkpoint(f.owner, newer!, true);
   f.transactionProvider.transactions.mockImplementationOnce(async () => {

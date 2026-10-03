@@ -97,3 +97,196 @@ export function monzoAttemptEntity(client: DynamoDBDocumentClient, table: string
     { client, table },
   );
 }
+
+type Config = { client: DynamoDBDocumentClient; table: string };
+const required = { type: "string", required: true } as const;
+const nullable = { type: "any" } as const;
+const model = <const E extends string>(entity: E) =>
+  ({ entity, service: "wealth", version: "1" }) as const;
+const ownerKeys = <const S extends readonly string[]>(sk: S) =>
+  ({
+    primary: { pk: { field: "pk", composite: ["owner"] }, sk: { field: "sk", composite: sk } },
+  }) as const;
+// Job and capacity registries share one partition so dispatchers can list every owner.
+const globalKeys = <const S extends readonly string[]>(sk: S) =>
+  ({
+    primary: { pk: { field: "pk", composite: [] }, sk: { field: "sk", composite: sk } },
+  }) as const;
+export function analysisEntities({ client, table }: Config) {
+  const config = { client, table };
+  return {
+    enduteJob: new Entity(
+      {
+        model: model("enduteJob"),
+        attributes: { owner: required },
+        indexes: globalKeys(["owner"]),
+      },
+      config,
+    ),
+    enduteSync: new Entity(
+      {
+        model: model("enduteSync"),
+        attributes: {
+          owner: required,
+          data: { type: CustomAttributeType<Record<string, unknown>>("any") },
+          leaseUntil: { type: "number" },
+          leaseToken: nullable,
+        },
+        indexes: ownerKeys([]),
+      },
+      config,
+    ),
+    enduteTransaction: new Entity(
+      {
+        model: model("enduteTransaction"),
+        attributes: {
+          owner: required,
+          bookingDate: required,
+          id: required,
+          data: { type: CustomAttributeType<object>("any"), required: true },
+        },
+        indexes: ownerKeys(["bookingDate", "id"]),
+      },
+      config,
+    ),
+    enduteTransactionId: new Entity(
+      {
+        model: model("enduteTransactionId"),
+        attributes: {
+          owner: required,
+          id: required,
+          bookingDate: required,
+          digest: required,
+          excluded: { type: "boolean" },
+        },
+        indexes: ownerKeys(["id"]),
+      },
+      config,
+    ),
+    categoryConfig: new Entity(
+      {
+        model: model("categoryConfig"),
+        attributes: {
+          owner: required,
+          version: { type: "number", required: true },
+          categories: {
+            type: CustomAttributeType<{ id: string; name: string }[]>("any"),
+            required: true,
+          },
+          generation: required,
+        },
+        indexes: ownerKeys([]),
+      },
+      config,
+    ),
+    categoryRebuild: new Entity(
+      {
+        model: model("categoryRebuild"),
+        attributes: {
+          owner: required,
+          generation: required,
+          cursor: nullable,
+          done: { type: "boolean", required: true },
+        },
+        indexes: ownerKeys([]),
+      },
+      config,
+    ),
+    categoryPending: new Entity(
+      {
+        model: model("categoryPending"),
+        attributes: {
+          owner: required,
+          id: required,
+          bookingDate: required,
+          digest: required,
+          attempts: { type: "number", required: true },
+          generation: { type: "string" },
+        },
+        indexes: ownerKeys(["id"]),
+      },
+      config,
+    ),
+    categoryResult: new Entity(
+      {
+        model: model("categoryResult"),
+        attributes: {
+          owner: required,
+          id: required,
+          categoryId: nullable,
+          source: { type: ["manual", "gemini"] as const, required: true },
+          version: { type: "number", required: true },
+          generation: required,
+          digest: required,
+          model: nullable,
+          updatedAt: required,
+          failed: { type: "boolean" },
+        },
+        indexes: ownerKeys(["id"]),
+      },
+      config,
+    ),
+    categoryBatch: new Entity(
+      {
+        model: model("categoryBatch"),
+        attributes: {
+          owner: required,
+          id: required,
+          displayName: required,
+          providerName: nullable,
+          phase: { type: ["prepared", "submitted", "uncertain"] as const, required: true },
+          version: { type: "number", required: true },
+          generation: required,
+          model: required,
+          createdAt: required,
+          items: {
+            type: CustomAttributeType<
+              {
+                id: string;
+                bookingDate: string;
+                digest: string;
+                attempts: number;
+                generation?: string;
+              }[]
+            >("any"),
+            required: true,
+          },
+          nextIndex: { type: "number" },
+        },
+        indexes: ownerKeys(["id"]),
+      },
+      config,
+    ),
+    categoryActive: new Entity(
+      {
+        model: model("categoryActive"),
+        attributes: { batchId: required, owner: required },
+        indexes: globalKeys(["batchId"]),
+      },
+      config,
+    ),
+    categoryWork: new Entity(
+      {
+        model: model("categoryWork"),
+        attributes: {
+          owner: required,
+          leaseUntil: { type: "number" },
+          token: { type: "string" },
+          error: nullable,
+          lastRunAt: { type: "string" },
+          retryAfter: { type: "number" },
+        },
+        indexes: ownerKeys([]),
+      },
+      config,
+    ),
+    categoryJob: new Entity(
+      {
+        model: model("categoryJob"),
+        attributes: { owner: required },
+        indexes: globalKeys(["owner"]),
+      },
+      config,
+    ),
+  };
+}

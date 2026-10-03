@@ -145,10 +145,7 @@ export class EnduteTransactionsService {
             importedAt: this.now().toISOString(),
           })),
           state.leaseToken!,
-          {
-            key: this.store.banks.entity.get({ owner, id: "endute" }).params().Key!,
-            credentials: bank.data.encryptedCredentials!,
-          },
+          bank.data.encryptedCredentials!,
         );
         progress.next = page.next;
         if (!page.next) {

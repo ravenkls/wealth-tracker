@@ -1,17 +1,10 @@
 import { hash } from "../auth/tokens";
-import {
-  BatchGetCommand,
-  DeleteCommand,
-  GetCommand,
-  PutCommand,
-  QueryCommand,
-  TransactWriteCommand,
-  UpdateCommand,
-  type DynamoDBDocumentClient,
-} from "@aws-sdk/lib-dynamodb";
+import { createConversions } from "electrodb";
 import type { EnduteTransaction } from "../integrations/endute";
 import { InputError } from "../application/snapshot-service";
-import { hasErrorName } from "./errors";
+import { ConflictError, hasErrorName } from "./errors";
+import { committed, getAll } from "./electro";
+import type { WealthService } from "./records";
 
 export interface TransactionRange {
   from: string;
@@ -53,68 +46,39 @@ export const emptySync = (): TransactionSyncState => ({
 });
 
 export class EnduteTransactionStore {
-  constructor(
-    private readonly client: DynamoDBDocumentClient,
-    private readonly table: string,
-  ) {}
-  private rows(owner: string) {
-    return `ENDUTE_TX#${owner}`;
-  }
-  private ids(owner: string) {
-    return `ENDUTE_TX_ID#${owner}`;
-  }
-  private stateKey(owner: string) {
-    return { pk: `ENDUTE_SYNC#${owner}`, sk: "STATE" };
+  private readonly e: WealthService["entities"];
+  constructor(private readonly service: WealthService) {
+    this.e = service.entities;
   }
 
   async register(owner: string) {
-    await this.client.send(
-      new PutCommand({ TableName: this.table, Item: { pk: "ENDUTE_JOBS", sk: owner, owner } }),
-    );
+    await this.e.enduteJob.put({ owner }).go();
   }
   async unregister(owner: string) {
-    await this.client.send(
-      new DeleteCommand({ TableName: this.table, Key: { pk: "ENDUTE_JOBS", sk: owner } }),
-    );
+    await this.e.enduteJob.delete({ owner }).go();
   }
   async jobs(after?: string) {
-    const result = await this.client.send(
-      new QueryCommand({
-        TableName: this.table,
-        KeyConditionExpression: "pk = :pk",
-        ExpressionAttributeValues: { ":pk": "ENDUTE_JOBS" },
-        Limit: 20,
-        ...(after ? { ExclusiveStartKey: { pk: "ENDUTE_JOBS", sk: after } } : {}),
-      }),
-    );
-    return {
-      owners: (result.Items ?? []).map((item) => item.owner as string),
-      next: result.LastEvaluatedKey?.sk as string | undefined,
-    };
+    const page = await this.e.enduteJob.query
+      .primary({})
+      .go({ limit: 20, ...(after ? { cursor: after } : {}) });
+    return { owners: page.data.map((item) => item.owner), next: page.cursor ?? undefined };
   }
   async state(owner: string): Promise<TransactionSyncState> {
-    const result = await this.client.send(
-      new GetCommand({ TableName: this.table, Key: this.stateKey(owner), ConsistentRead: true }),
-    );
+    const { data } = await this.e.enduteSync.get({ owner }).go({ consistent: true });
     return {
-      ...((result.Item?.data as TransactionSyncState) ?? emptySync()),
-      leaseUntil: (result.Item?.leaseUntil as number) ?? 0,
+      ...((data?.data as TransactionSyncState | undefined) ?? emptySync()),
+      leaseUntil: data?.leaseUntil ?? 0,
     };
   }
   async acquire(owner: string, token: string, now: number): Promise<TransactionSyncState | null> {
     try {
-      const result = await this.client.send(
-        new UpdateCommand({
-          TableName: this.table,
-          Key: this.stateKey(owner),
-          UpdateExpression: "SET leaseUntil = :until, leaseToken = :token",
-          ConditionExpression: "attribute_not_exists(leaseUntil) OR leaseUntil <= :now",
-          ExpressionAttributeValues: { ":until": now + 150000, ":token": token, ":now": now },
-          ReturnValues: "ALL_NEW",
-        }),
-      );
+      const { data } = await this.e.enduteSync
+        .update({ owner })
+        .set({ leaseUntil: now + 150000, leaseToken: token })
+        .where((a, o) => `${o.notExists(a.leaseUntil)} OR ${o.lte(a.leaseUntil, now)}`)
+        .go({ response: "all_new" });
       return {
-        ...((result.Attributes?.data as TransactionSyncState) ?? emptySync()),
+        ...((data.data as TransactionSyncState | undefined) ?? emptySync()),
         leaseUntil: now + 150000,
         leaseToken: token,
       };
@@ -124,48 +88,26 @@ export class EnduteTransactionStore {
     }
   }
   async checkpoint(owner: string, state: TransactionSyncState, release: boolean) {
-    await this.client.send(
-      new UpdateCommand({
-        TableName: this.table,
-        Key: this.stateKey(owner),
-        UpdateExpression: "SET #data = :data, leaseUntil = :until",
-        ConditionExpression: "leaseToken = :token",
-        ExpressionAttributeNames: { "#data": "data" },
-        ExpressionAttributeValues: {
-          ":data": { ...state, leaseUntil: release ? 0 : state.leaseUntil, leaseToken: null },
-          ":until": release ? 0 : state.leaseUntil,
-          ":token": state.leaseToken,
-        },
-      }),
-    );
+    const leaseUntil = release ? 0 : state.leaseUntil;
+    await this.e.enduteSync
+      .update({ owner })
+      .set({ data: { ...state, leaseUntil, leaseToken: null }, leaseUntil })
+      .where((a, o) => o.eq(a.leaseToken, state.leaseToken))
+      .go();
   }
   async putPage(
     owner: string,
     rows: StoredEnduteTransaction[],
     token: string,
-    bank?: { key: Record<string, unknown>; credentials: string },
+    credentials?: string,
   ) {
     // Stable IDs deduplicate overlapping provider pages; date changes move the chronological row.
     const unique = [...new Map(rows.map((row) => [`${row.accountId}#${row.id}`, row])).values()];
     if (!unique.length) return;
-    const keys = unique.map((row) => ({ pk: this.ids(owner), sk: `${row.accountId}#${row.id}` }));
-    let pending = keys;
-    const previous = new Map<string, { rowKey: string; digest: string | undefined }>();
-    for (let attempt = 0; pending.length && attempt < 5; attempt++) {
-      const result = await this.client.send(
-        new BatchGetCommand({
-          RequestItems: { [this.table]: { Keys: pending, ConsistentRead: true } },
-        }),
-      );
-      for (const item of result.Responses?.[this.table] ?? [])
-        previous.set(item.sk as string, {
-          rowKey: item.rowKey as string,
-          digest: item.digest as string | undefined,
-        });
-      pending = (result.UnprocessedKeys?.[this.table]?.Keys ?? []) as typeof keys;
-      if (pending.length) await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
-    }
-    if (pending.length) throw new Error("Transaction identities could not be read.");
+    const previous = await this.identities(
+      owner,
+      unique.map((row) => `${row.accountId}#${row.id}`),
+    );
     const fingerprints = new Map(
       unique.map((row) => {
         const { importedAt: _importedAt, ...source } = row;
@@ -178,170 +120,109 @@ export class EnduteTransactionStore {
         fingerprints.get(`${row.accountId}#${row.id}`),
     );
     for (let offset = 0; offset < changed.length; offset += 20) {
-      const writes: NonNullable<
-        ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]
-      > = [
-        {
-          ConditionCheck: {
-            TableName: this.table,
-            Key: this.stateKey(owner),
-            ConditionExpression: "leaseToken = :token",
-            ExpressionAttributeValues: { ":token": token },
-          },
-        },
-      ];
-      if (bank)
-        writes.push({
-          ConditionCheck: {
-            TableName: this.table,
-            Key: bank.key,
-            ConditionExpression:
-              "#data.encryptedCredentials = :credentials AND #data.disconnected = :disconnected",
-            ExpressionAttributeNames: { "#data": "data" },
-            ExpressionAttributeValues: { ":credentials": bank.credentials, ":disconnected": false },
-          },
-        });
-      for (const row of changed.slice(offset, offset + 20)) {
-        const id = `${row.accountId}#${row.id}`;
-        const rowKey = `${row.booking_date}#${id}`;
-        const old = previous.get(id)?.rowKey;
-        if (old && old !== rowKey)
-          writes.push({
-            Delete: { TableName: this.table, Key: { pk: this.rows(owner), sk: old } },
-          });
-        writes.push(
-          {
-            // Update keeps user-set attributes such as exclusion across re-imports.
-            Update: {
-              TableName: this.table,
-              Key: { pk: this.ids(owner), sk: id },
-              UpdateExpression: "SET rowKey = :rowKey, digest = :digest",
-              ExpressionAttributeValues: { ":rowKey": rowKey, ":digest": fingerprints.get(id) },
-            },
-          },
-          { Put: { TableName: this.table, Item: { pk: this.rows(owner), sk: rowKey, data: row } } },
-          {
-            Put: {
-              TableName: this.table,
-              Item: {
-                pk: `CAT_PENDING#${owner}`,
-                sk: id,
-                rowKey,
-                digest: fingerprints.get(id),
-                attempts: 0,
-              },
-            },
-          },
-        );
-      }
-      await this.client.send(new TransactWriteCommand({ TransactItems: writes }));
+      const result = await this.service.transaction
+        .write((e) => [
+          e.enduteSync
+            .check({ owner })
+            .where((a, o) => o.eq(a.leaseToken, token))
+            .commit(),
+          ...(credentials
+            ? [
+                e.bankConnection
+                  .check({ owner, id: "endute" })
+                  .where(
+                    (a, o) =>
+                      `${o.name(a.data)}.encryptedCredentials = ${o.value(a.data, credentials as never)} AND ${o.name(a.data)}.disconnected = ${o.value(a.data, false as never)}`,
+                  )
+                  .commit(),
+              ]
+            : []),
+          ...changed.slice(offset, offset + 20).flatMap((row) => {
+            const id = `${row.accountId}#${row.id}`;
+            const digest = fingerprints.get(id)!;
+            const old = previous.get(id)?.bookingDate;
+            return [
+              ...(old && old !== row.booking_date
+                ? [e.enduteTransaction.delete({ owner, bookingDate: old, id }).commit()]
+                : []),
+              // Update keeps user-set attributes such as exclusion across re-imports.
+              e.enduteTransactionId
+                .update({ owner, id })
+                .set({ bookingDate: row.booking_date, digest })
+                .commit(),
+              e.enduteTransaction
+                .put({ owner, bookingDate: row.booking_date, id, data: row })
+                .commit(),
+              e.categoryPending
+                .put({ owner, id, bookingDate: row.booking_date, digest, attempts: 0 })
+                .commit(),
+            ];
+          }),
+        ])
+        .go();
+      if (!committed(result)) throw new ConflictError();
     }
   }
   async identities(owner: string, ids: string[]) {
-    const result = new Map<string, { rowKey: string; digest: string; excluded: boolean }>();
-    for (let offset = 0; offset < ids.length; offset += 100) {
-      let keys = [...new Set(ids.slice(offset, offset + 100))].map((sk) => ({
-        pk: this.ids(owner),
-        sk,
-      }));
-      for (let attempt = 0; keys.length && attempt < 5; attempt++) {
-        const page = await this.client.send(
-          new BatchGetCommand({
-            RequestItems: { [this.table]: { Keys: keys, ConsistentRead: true } },
-          }),
-        );
-        for (const item of page.Responses?.[this.table] ?? [])
-          result.set(item.sk as string, {
-            rowKey: item.rowKey as string,
-            digest: item.digest as string,
-            excluded: Boolean(item.excluded),
-          });
-        keys = (page.UnprocessedKeys?.[this.table]?.Keys ?? []) as typeof keys;
-        if (keys.length) await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
-      }
-      if (keys.length) throw new Error("Transaction identities could not be read.");
-    }
-    return result;
+    const items = await getAll(
+      (keys) => this.e.enduteTransactionId.get(keys).go({ consistent: true }),
+      [...new Set(ids)].map((id) => ({ owner, id })),
+      "Transaction identities could not be read.",
+    );
+    return new Map(
+      items.map((item) => [
+        item.id,
+        { bookingDate: item.bookingDate, digest: item.digest, excluded: !!item.excluded },
+      ]),
+    );
   }
   async exclude(owner: string, id: string, excluded: boolean) {
     try {
-      await this.client.send(
-        new UpdateCommand({
-          TableName: this.table,
-          Key: { pk: this.ids(owner), sk: id },
-          UpdateExpression: "SET excluded = :excluded",
-          ConditionExpression: "attribute_exists(pk)",
-          ExpressionAttributeValues: { ":excluded": excluded },
-        }),
-      );
+      await this.e.enduteTransactionId.patch({ owner, id }).set({ excluded }).go();
     } catch (error) {
       if (hasErrorName(error, "ConditionalCheckFailedException"))
         throw new InputError("Transaction not found.");
       throw error;
     }
   }
-  async readRows(owner: string, keys: string[]) {
-    const rows = new Map<string, StoredEnduteTransaction>();
-    for (let offset = 0; offset < keys.length; offset += 100) {
-      let pending = [...new Set(keys.slice(offset, offset + 100))].map((sk) => ({
-        pk: this.rows(owner),
-        sk,
-      }));
-      for (let attempt = 0; pending.length && attempt < 5; attempt++) {
-        const result = await this.client.send(
-          new BatchGetCommand({
-            RequestItems: { [this.table]: { Keys: pending, ConsistentRead: true } },
-          }),
-        );
-        for (const item of result.Responses?.[this.table] ?? [])
-          rows.set(item.sk as string, item.data as StoredEnduteTransaction);
-        pending = (result.UnprocessedKeys?.[this.table]?.Keys ?? []) as typeof pending;
-        if (pending.length) await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
-      }
-      if (pending.length) throw new Error("Transaction data could not be read.");
-    }
-    return rows;
+  async readRows(owner: string, keys: { id: string; bookingDate: string }[]) {
+    const items = await getAll(
+      (batch) => this.e.enduteTransaction.get(batch).go({ consistent: true }),
+      [...new Map(keys.map(({ id, bookingDate }) => [id, { owner, id, bookingDate }])).values()],
+      "Transaction data could not be read.",
+    );
+    return new Map(items.map((item) => [item.id, item.data as StoredEnduteTransaction]));
   }
   async list(owner: string, cursor?: string, limit = 50, range?: TransactionRange) {
-    let start: { pk: string; sk: string } | undefined;
     if (cursor) {
       try {
-        const value: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString());
+        // Cursors are client-supplied, so they must stay inside this owner's requested range.
+        const start = createConversions(this.e.enduteTransaction).fromCursor.toComposite(cursor);
         if (
-          !value ||
-          typeof value !== "object" ||
-          !("pk" in value) ||
-          !("sk" in value) ||
-          value.pk !== this.rows(owner) ||
-          typeof value.sk !== "string" ||
-          !/^\d{4}-\d{2}-\d{2}#/.test(value.sk) ||
-          (range && (value.sk < `${range.from}#` || value.sk > `${range.to}#\uffff`))
+          start?.owner !== owner.toLowerCase() ||
+          !start.bookingDate ||
+          (range && (start.bookingDate < range.from || start.bookingDate > range.to))
         )
           throw new Error();
-        start = { pk: this.rows(owner), sk: value.sk };
       } catch {
         throw new InputError("Invalid transaction page cursor. Return to the first page.");
       }
     }
-    const result = await this.client.send(
-      new QueryCommand({
-        TableName: this.table,
-        KeyConditionExpression: range ? "pk = :pk AND sk BETWEEN :from AND :to" : "pk = :pk",
-        ExpressionAttributeValues: {
-          ":pk": this.rows(owner),
-          ...(range ? { ":from": `${range.from}#`, ":to": `${range.to}#\uffff` } : {}),
-        },
-        ScanIndexForward: false,
-        ConsistentRead: true,
-        Limit: Math.min(Math.max(limit, 1), 500),
-        ...(start ? { ExclusiveStartKey: start } : {}),
-      }),
-    );
+    const query = this.e.enduteTransaction.query.primary({ owner });
+    // The upper bound sorts after every transaction key on the final day.
+    const page = await (
+      range
+        ? query.between({ bookingDate: range.from }, { bookingDate: `${range.to}\uffff` })
+        : query
+    ).go({
+      order: "desc",
+      consistent: true,
+      limit: Math.min(Math.max(limit, 1), 500),
+      ...(cursor ? { cursor } : {}),
+    });
     return {
-      rows: (result.Items ?? []).map((item) => item.data as StoredEnduteTransaction),
-      nextCursor: result.LastEvaluatedKey
-        ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString("base64url")
-        : null,
+      rows: page.data.map((item) => item.data as StoredEnduteTransaction),
+      nextCursor: page.cursor ?? null,
     };
   }
 }

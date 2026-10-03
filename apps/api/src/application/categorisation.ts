@@ -55,13 +55,13 @@ export class CategorisationService {
       this.store.categorisation.workState(owner),
     ]);
     const processing = new Set(
-      batches.flatMap((b) => b.items.slice(b.nextIndex ?? 0).map((i) => i.sk)),
+      batches.flatMap((b) => b.items.slice(b.nextIndex ?? 0).map((i) => i.id)),
     );
     return {
       ...config,
       categories: config.categories.map(({ id, name }) => ({ id, name })),
       configured: this.configured,
-      queued: pending.items.filter((i) => !processing.has(i.sk)).length,
+      queued: pending.items.filter((i) => !processing.has(i.id)).length,
       moreQueued: pending.more,
       processing: processing.size,
       batches: batches.length,
@@ -244,8 +244,8 @@ export class CategorisationService {
               return existing?.source !== "manual" && existing?.generation !== config.generation;
             })
             .map((row) => ({
-              sk: `${row.accountId}#${row.id}`,
-              rowKey: `${row.booking_date}#${row.accountId}#${row.id}`,
+              id: `${row.accountId}#${row.id}`,
+              bookingDate: row.booking_date,
               digest: identities.get(`${row.accountId}#${row.id}`)?.digest ?? "",
               attempts: 0,
             })),
@@ -254,33 +254,30 @@ export class CategorisationService {
       }
       batches = await this.store.categorisation.batches(owner);
       if (batches.length >= 3 || Date.now() > deadline - 25000) return;
-      const inFlight = new Set(batches.flatMap((b) => b.items.map((i) => i.sk)));
+      const inFlight = new Set(batches.flatMap((b) => b.items.map((i) => i.id)));
       const pending = (await this.store.categorisation.pending(owner, 2000)).items
-        .filter((i) => !inFlight.has(i.sk))
+        .filter((i) => !inFlight.has(i.id))
         .slice(0, 500);
       if (!pending.length) return;
       const [rows, classifications, identities] = await Promise.all([
-        this.store.transactions.readRows(
-          owner,
-          pending.map((i) => i.rowKey),
-        ),
+        this.store.transactions.readRows(owner, pending),
         this.store.categorisation.classifications(
           owner,
-          pending.map((i) => i.sk),
+          pending.map((i) => i.id),
         ),
         this.store.transactions.identities(
           owner,
-          pending.map((i) => i.sk),
+          pending.map((i) => i.id),
         ),
       ]);
       const items = [];
       for (const item of pending) {
-        const previous = classifications.get(item.sk);
-        const row = rows.get(item.rowKey);
+        const previous = classifications.get(item.id);
+        const row = rows.get(item.id);
         if (
           previous?.source === "manual" ||
           !row ||
-          identities.get(item.sk)?.digest !== item.digest
+          identities.get(item.id)?.digest !== item.digest
         ) {
           await this.store.categorisation.removePending(owner, item);
           continue;
@@ -323,17 +320,12 @@ export class CategorisationService {
       await this.store.categorisation.finish(owner, batch.id);
       return;
     }
-    const rows =
-      suppliedRows ??
-      (await this.store.transactions.readRows(
-        owner,
-        batch.items.map((i) => i.rowKey),
-      ));
+    const rows = suppliedRows ?? (await this.store.transactions.readRows(owner, batch.items));
     const identities = await this.store.transactions.identities(
       owner,
-      batch.items.map((i) => i.sk),
+      batch.items.map((i) => i.id),
     );
-    if (batch.items.some((i) => !rows.has(i.rowKey) || identities.get(i.sk)?.digest !== i.digest)) {
+    if (batch.items.some((i) => !rows.has(i.id) || identities.get(i.id)?.digest !== i.digest)) {
       await this.store.categorisation.finish(owner, batch.id);
       return;
     }
@@ -343,7 +335,7 @@ export class CategorisationService {
       batch.providerName = await this.provider.submit(
         batch.displayName,
         categories,
-        batch.items.map((item, index) => ({ key: `tx_${index}`, row: rows.get(item.rowKey)! })),
+        batch.items.map((item, index) => ({ key: `tx_${index}`, row: rows.get(item.id)! })),
       );
       batch.phase = "submitted";
       await this.store.categorisation.saveBatch(owner, batch);

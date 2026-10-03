@@ -1,16 +1,8 @@
 import { randomUUID } from "node:crypto";
-import {
-  BatchGetCommand,
-  DeleteCommand,
-  GetCommand,
-  PutCommand,
-  QueryCommand,
-  TransactWriteCommand,
-  UpdateCommand,
-  type DynamoDBDocumentClient,
-} from "@aws-sdk/lib-dynamodb";
 import type { PurchaseCategory } from "../integrations/gemini";
 import { ConflictError, hasErrorName } from "./errors";
+import { committed, getAll } from "./electro";
+import type { WealthService } from "./records";
 
 export interface CategoryConfig {
   version: number;
@@ -28,8 +20,8 @@ export interface Classification {
   failed?: boolean;
 }
 export interface PendingClassification {
-  sk: string;
-  rowKey: string;
+  id: string;
+  bookingDate: string;
   digest: string;
   attempts: number;
   generation?: string;
@@ -48,41 +40,19 @@ export interface ClassificationBatch {
 }
 interface Rebuild {
   generation: string;
-  cursor?: string;
+  cursor: string | null;
   done: boolean;
 }
-export function conditionalFailure(error: unknown) {
-  if (hasErrorName(error, "ConditionalCheckFailedException")) return true;
-  if (!hasErrorName(error, "TransactionCanceledException")) return false;
-  const reasons = (error as { CancellationReasons?: { Code?: string }[] }).CancellationReasons;
-  return (
-    !!reasons?.some((r) => r.Code === "ConditionalCheckFailed") &&
-    reasons.every((r) => !r.Code || r.Code === "None" || r.Code === "ConditionalCheckFailed")
-  );
-}
 export class CategorisationStore {
-  constructor(
-    private readonly client: DynamoDBDocumentClient,
-    private readonly table: string,
-  ) {}
-  private key(owner: string, kind: string, sk = "STATE") {
-    return { pk: `CAT_${kind}#${owner}`, sk };
-  }
-  private async read<T>(key: { pk: string; sk: string }) {
-    return (
-      await this.client.send(
-        new GetCommand({ TableName: this.table, Key: key, ConsistentRead: true }),
-      )
-    ).Item as T | undefined;
+  private readonly e: WealthService["entities"];
+  constructor(private readonly service: WealthService) {
+    this.e = service.entities;
   }
   async config(owner: string): Promise<CategoryConfig> {
-    return (
-      (await this.read<CategoryConfig>(this.key(owner, "CONFIG"))) ?? {
-        version: 0,
-        categories: [],
-        generation: "initial",
-      }
-    );
+    const { data } = await this.e.categoryConfig.get({ owner }).go({ consistent: true });
+    return data
+      ? { version: data.version, categories: data.categories, generation: data.generation }
+      : { version: 0, categories: [], generation: "initial" };
   }
   async save(
     owner: string,
@@ -94,45 +64,28 @@ export class CategorisationStore {
     if (current.version !== expectedVersion) throw new ConflictError();
     const generation = recategorise ? randomUUID() : current.generation;
     const value = { version: expectedVersion + 1, categories, generation };
-    try {
-      await this.client.send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Put: {
-                TableName: this.table,
-                Item: { ...this.key(owner, "CONFIG"), ...value },
-                ConditionExpression: expectedVersion ? "#v = :v" : "attribute_not_exists(pk)",
-                ...(expectedVersion
-                  ? {
-                      ExpressionAttributeNames: { "#v": "version" },
-                      ExpressionAttributeValues: { ":v": expectedVersion },
-                    }
-                  : {}),
-              },
-            },
-            { Put: { TableName: this.table, Item: { pk: "CAT_JOBS", sk: owner, owner } } },
-            ...(recategorise
-              ? [
-                  {
-                    Put: {
-                      TableName: this.table,
-                      Item: { ...this.key(owner, "REBUILD"), generation, done: false },
-                    },
-                  },
-                ]
-              : []),
-          ],
-        }),
-      );
-    } catch (error) {
-      if (conditionalFailure(error)) throw new ConflictError();
-      throw error;
-    }
+    const result = await this.service.transaction
+      .write((e) => [
+        expectedVersion
+          ? e.categoryConfig
+              .put({ owner, ...value })
+              .where((a, o) => o.eq(a.version, expectedVersion))
+              .commit()
+          : e.categoryConfig.create({ owner, ...value }).commit(),
+        e.categoryJob.put({ owner }).commit(),
+        ...(recategorise
+          ? [e.categoryRebuild.put({ owner, generation, cursor: null, done: false }).commit()]
+          : []),
+      ])
+      .go();
+    if (!committed(result)) throw new ConflictError();
     return value;
   }
-  async rebuild(owner: string) {
-    return this.read<Rebuild>(this.key(owner, "REBUILD"));
+  async rebuild(owner: string): Promise<Rebuild | undefined> {
+    const { data } = await this.e.categoryRebuild.get({ owner }).go({ consistent: true });
+    return data
+      ? { generation: data.generation, cursor: data.cursor ?? null, done: data.done }
+      : undefined;
   }
   async rebuildPage(
     owner: string,
@@ -141,124 +94,75 @@ export class CategorisationStore {
     cursor: string | null,
   ) {
     for (let offset = 0; offset < rows.length; offset += 20) {
-      try {
-        await this.client.send(
-          new TransactWriteCommand({
-            TransactItems: [
-              {
-                ConditionCheck: {
-                  TableName: this.table,
-                  Key: this.key(owner, "CONFIG"),
-                  ConditionExpression: "generation = :g",
-                  ExpressionAttributeValues: { ":g": generation },
-                },
-              },
-              ...rows.slice(offset, offset + 20).flatMap((row) => [
-                {
-                  ConditionCheck: {
-                    TableName: this.table,
-                    Key: { pk: `ENDUTE_TX_ID#${owner}`, sk: row.sk },
-                    ConditionExpression: "digest = :d",
-                    ExpressionAttributeValues: { ":d": row.digest },
-                  },
-                },
-                {
-                  Put: {
-                    TableName: this.table,
-                    Item: {
-                      ...this.key(owner, "PENDING", row.sk),
-                      ...row,
-                      generation,
-                      attempts: 0,
-                    },
-                  },
-                },
-              ]),
-            ],
-          }),
-        );
-      } catch (error) {
-        if (conditionalFailure(error)) return;
-        throw error;
-      }
+      const result = await this.service.transaction
+        .write((e) => [
+          e.categoryConfig
+            .check({ owner })
+            .where((a, o) => o.eq(a.generation, generation))
+            .commit(),
+          ...rows.slice(offset, offset + 20).flatMap((row) => [
+            e.enduteTransactionId
+              .check({ owner, id: row.id })
+              .where((a, o) => o.eq(a.digest, row.digest))
+              .commit(),
+            e.categoryPending.put({ owner, ...row, generation, attempts: 0 }).commit(),
+          ]),
+        ])
+        .go();
+      if (!committed(result)) return;
     }
     try {
-      await this.client.send(
-        new UpdateCommand({
-          TableName: this.table,
-          Key: this.key(owner, "REBUILD"),
-          UpdateExpression: "SET #cursor = :cursor, done = :done",
-          ConditionExpression: "generation = :g",
-          ExpressionAttributeNames: { "#cursor": "cursor" },
-          ExpressionAttributeValues: {
-            ":cursor": cursor ?? null,
-            ":done": !cursor,
-            ":g": generation,
-          },
-        }),
-      );
+      await this.e.categoryRebuild
+        .patch({ owner })
+        .set({ cursor, done: !cursor })
+        .where((a, o) => o.eq(a.generation, generation))
+        .go();
     } catch (error) {
-      if (!conditionalFailure(error)) throw error;
+      if (!hasErrorName(error, "ConditionalCheckFailedException")) throw error;
     }
   }
   async pending(owner: string, limit = 500) {
-    const result = await this.client.send(
-      new QueryCommand({
-        TableName: this.table,
-        KeyConditionExpression: "pk = :pk",
-        ExpressionAttributeValues: { ":pk": this.key(owner, "PENDING").pk },
-        Limit: limit,
-        ConsistentRead: true,
-      }),
-    );
+    const page = await this.e.categoryPending.query
+      .primary({ owner })
+      .go({ limit, consistent: true });
     return {
-      items: (result.Items ?? []) as PendingClassification[],
-      more: !!result.LastEvaluatedKey,
+      items: page.data.map(({ owner: _owner, ...item }): PendingClassification => item),
+      more: !!page.cursor,
     };
   }
   async classifications(owner: string, ids: string[]) {
-    const found = new Map<string, Classification>();
-    for (let offset = 0; offset < ids.length; offset += 100) {
-      let keys = [...new Set(ids.slice(offset, offset + 100))].map((id) =>
-        this.key(owner, "RESULT", id),
-      );
-      for (let retry = 0; keys.length && retry < 5; retry++) {
-        const result = await this.client.send(
-          new BatchGetCommand({
-            RequestItems: { [this.table]: { Keys: keys, ConsistentRead: true } },
-          }),
-        );
-        for (const item of result.Responses?.[this.table] ?? [])
-          found.set(item.sk as string, {
-            categoryId: item.categoryId as string | null,
-            source: item.source as Classification["source"],
-            version: item.version as number,
-            generation: item.generation as string,
-            digest: item.digest as string,
-            model: item.model as string | null,
-            updatedAt: item.updatedAt as string,
-            failed: Boolean(item.failed),
-          });
-        keys = (result.UnprocessedKeys?.[this.table]?.Keys ?? []) as typeof keys;
-        if (keys.length) await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** retry));
-      }
-      if (keys.length) throw new Error("Custom categories could not be read.");
-    }
-    return found;
+    const items = await getAll(
+      (keys) => this.e.categoryResult.get(keys).go({ consistent: true }),
+      [...new Set(ids)].map((id) => ({ owner, id })),
+      "Custom categories could not be read.",
+    );
+    return new Map(
+      items.map((item): [string, Classification] => [
+        item.id,
+        {
+          categoryId: item.categoryId ?? null,
+          source: item.source,
+          version: item.version,
+          generation: item.generation,
+          digest: item.digest,
+          model: item.model ?? null,
+          updatedAt: item.updatedAt,
+          failed: Boolean(item.failed),
+        },
+      ]),
+    );
   }
   async removePending(owner: string, row: PendingClassification) {
     try {
-      await this.client.send(
-        new DeleteCommand({
-          TableName: this.table,
-          Key: this.key(owner, "PENDING", row.sk),
-          ConditionExpression:
-            "digest = :d AND (generation = :g OR attribute_not_exists(generation))",
-          ExpressionAttributeValues: { ":d": row.digest, ":g": row.generation ?? "initial" },
-        }),
-      );
+      await this.e.categoryPending
+        .delete({ owner, id: row.id })
+        .where(
+          (a, o) =>
+            `${o.eq(a.digest, row.digest)} AND (${o.eq(a.generation, row.generation ?? "initial")} OR ${o.notExists(a.generation)})`,
+        )
+        .go();
     } catch (error) {
-      if (!conditionalFailure(error)) throw error;
+      if (!hasErrorName(error, "ConditionalCheckFailedException")) throw error;
     }
   }
   async apply(
@@ -268,83 +172,61 @@ export class CategorisationStore {
     categoryId: string | null,
     failed = false,
   ) {
-    const previous = (await this.classifications(owner, [row.sk])).get(row.sk);
-    try {
-      await this.client.send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              ConditionCheck: {
-                TableName: this.table,
-                Key: { pk: `ENDUTE_TX_ID#${owner}`, sk: row.sk },
-                ConditionExpression: "digest = :d",
-                ExpressionAttributeValues: { ":d": row.digest },
-              },
-            },
-            {
-              ConditionCheck: {
-                TableName: this.table,
-                Key: this.key(owner, "CONFIG"),
-                ConditionExpression: "#v = :v AND generation = :g",
-                ExpressionAttributeNames: { "#v": "version" },
-                ExpressionAttributeValues: { ":v": batch.version, ":g": batch.generation },
-              },
-            },
-            {
-              Delete: {
-                TableName: this.table,
-                Key: this.key(owner, "PENDING", row.sk),
-                ConditionExpression:
-                  "digest = :d AND (generation = :g OR attribute_not_exists(generation))",
-                ExpressionAttributeValues: { ":d": row.digest, ":g": batch.generation },
-              },
-            },
-            {
-              Put: {
-                TableName: this.table,
-                Item: {
-                  ...this.key(owner, "RESULT", row.sk),
-                  categoryId: failed ? (previous?.categoryId ?? null) : categoryId,
-                  source: "gemini",
-                  version: (previous?.version ?? 0) + 1,
-                  generation: batch.generation,
-                  digest: row.digest,
-                  model: batch.model,
-                  updatedAt: new Date().toISOString(),
-                  failed,
-                },
-                ConditionExpression: "attribute_not_exists(pk) OR (#source <> :manual AND #v = :v)",
-                ExpressionAttributeNames: { "#source": "source", "#v": "version" },
-                ExpressionAttributeValues: { ":manual": "manual", ":v": previous?.version ?? 0 },
-              },
-            },
-          ],
-        }),
-      );
-      return true;
-    } catch (error) {
-      if (conditionalFailure(error)) return false;
-      throw error;
-    }
+    const previous = (await this.classifications(owner, [row.id])).get(row.id);
+    const result = await this.service.transaction
+      .write((e) => [
+        e.enduteTransactionId
+          .check({ owner, id: row.id })
+          .where((a, o) => o.eq(a.digest, row.digest))
+          .commit(),
+        e.categoryConfig
+          .check({ owner })
+          .where(
+            (a, o) =>
+              `${o.eq(a.version, batch.version)} AND ${o.eq(a.generation, batch.generation)}`,
+          )
+          .commit(),
+        e.categoryPending
+          .delete({ owner, id: row.id })
+          .where(
+            (a, o) =>
+              `${o.eq(a.digest, row.digest)} AND (${o.eq(a.generation, batch.generation)} OR ${o.notExists(a.generation)})`,
+          )
+          .commit(),
+        e.categoryResult
+          .put({
+            owner,
+            id: row.id,
+            categoryId: failed ? (previous?.categoryId ?? null) : categoryId,
+            source: "gemini",
+            version: (previous?.version ?? 0) + 1,
+            generation: batch.generation,
+            digest: row.digest,
+            model: batch.model,
+            updatedAt: new Date().toISOString(),
+            failed,
+          })
+          .where(
+            (a, o) =>
+              `${o.notExists(a.id)} OR (${o.ne(a.source, "manual")} AND ${o.eq(a.version, previous?.version ?? 0)})`,
+          )
+          .commit(),
+      ])
+      .go();
+    return committed(result);
   }
   async retry(owner: string, row: PendingClassification) {
     try {
-      await this.client.send(
-        new UpdateCommand({
-          TableName: this.table,
-          Key: this.key(owner, "PENDING", row.sk),
-          UpdateExpression: "SET attempts = :a",
-          ConditionExpression:
-            "digest = :d AND (generation = :g OR attribute_not_exists(generation))",
-          ExpressionAttributeValues: {
-            ":a": row.attempts + 1,
-            ":d": row.digest,
-            ":g": row.generation ?? "initial",
-          },
-        }),
-      );
+      await this.e.categoryPending
+        .patch({ owner, id: row.id })
+        .set({ attempts: row.attempts + 1 })
+        .where(
+          (a, o) =>
+            `${o.eq(a.digest, row.digest)} AND (${o.eq(a.generation, row.generation ?? "initial")} OR ${o.notExists(a.generation)})`,
+        )
+        .go();
     } catch (error) {
-      if (!conditionalFailure(error)) throw error;
+      if (!hasErrorName(error, "ConditionalCheckFailedException")) throw error;
     }
   }
   async manual(
@@ -354,178 +236,118 @@ export class CategorisationStore {
     expectedVersion: number,
     config: CategoryConfig,
   ) {
-    try {
-      await this.client.send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              ConditionCheck: {
-                TableName: this.table,
-                Key: this.key(owner, "CONFIG"),
-                ConditionExpression: "#v = :v",
-                ExpressionAttributeNames: { "#v": "version" },
-                ExpressionAttributeValues: { ":v": config.version },
-              },
-            },
-            {
-              Put: {
-                TableName: this.table,
-                Item: {
-                  ...this.key(owner, "RESULT", id),
-                  categoryId,
-                  source: "manual",
-                  version: expectedVersion + 1,
-                  generation: config.generation,
-                  digest: "manual",
-                  model: null,
-                  updatedAt: new Date().toISOString(),
-                },
-                ConditionExpression: expectedVersion ? "#v = :v" : "attribute_not_exists(pk)",
-                ...(expectedVersion
-                  ? {
-                      ExpressionAttributeNames: { "#v": "version" },
-                      ExpressionAttributeValues: { ":v": expectedVersion },
-                    }
-                  : {}),
-              },
-            },
-          ],
-        }),
-      );
-    } catch (error) {
-      if (conditionalFailure(error)) throw new ConflictError();
-      throw error;
-    }
+    const item = {
+      owner,
+      id,
+      categoryId,
+      source: "manual" as const,
+      version: expectedVersion + 1,
+      generation: config.generation,
+      digest: "manual",
+      model: null,
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await this.service.transaction
+      .write((e) => [
+        e.categoryConfig
+          .check({ owner })
+          .where((a, o) => o.eq(a.version, config.version))
+          .commit(),
+        expectedVersion
+          ? e.categoryResult
+              .put(item)
+              .where((a, o) => o.eq(a.version, expectedVersion))
+              .commit()
+          : e.categoryResult.create(item).commit(),
+      ])
+      .go();
+    if (!committed(result)) throw new ConflictError();
   }
   async jobs(after?: string) {
-    const result = await this.client.send(
-      new QueryCommand({
-        TableName: this.table,
-        KeyConditionExpression: "pk = :pk",
-        ExpressionAttributeValues: { ":pk": "CAT_JOBS" },
-        Limit: 20,
-        ...(after ? { ExclusiveStartKey: { pk: "CAT_JOBS", sk: after } } : {}),
-      }),
-    );
-    return {
-      owners: (result.Items ?? []).map((item) => item.owner as string),
-      next: result.LastEvaluatedKey?.sk as string | undefined,
-    };
+    const page = await this.e.categoryJob.query
+      .primary({})
+      .go({ limit: 20, ...(after ? { cursor: after } : {}) });
+    return { owners: page.data.map((item) => item.owner), next: page.cursor ?? undefined };
   }
-  async batches(owner: string) {
-    return (
-      ((
-        await this.client.send(
-          new QueryCommand({
-            TableName: this.table,
-            KeyConditionExpression: "pk = :pk",
-            ExpressionAttributeValues: { ":pk": this.key(owner, "BATCH").pk },
-            Limit: 4,
-            ConsistentRead: true,
-          }),
-        )
-      ).Items as ClassificationBatch[]) ?? []
-    );
+  async batches(owner: string): Promise<ClassificationBatch[]> {
+    const page = await this.e.categoryBatch.query
+      .primary({ owner })
+      .go({ limit: 4, consistent: true });
+    return page.data.map(({ owner: _owner, ...batch }) => ({
+      ...batch,
+      providerName: batch.providerName ?? null,
+    }));
   }
   async saveBatch(owner: string, batch: ClassificationBatch) {
-    await this.client.send(
-      new PutCommand({
-        TableName: this.table,
-        Item: { ...this.key(owner, "BATCH", batch.id), ...batch },
-      }),
-    );
+    await this.e.categoryBatch.put({ owner, ...batch }).go();
   }
   async reserve(owner: string, batch: ClassificationBatch) {
     const token = randomUUID();
     if (!(await this.acquire("global", token, 30000))) return false;
     try {
-      const slots = await this.client.send(
-        new QueryCommand({
-          TableName: this.table,
-          KeyConditionExpression: "pk = :pk",
-          ExpressionAttributeValues: { ":pk": "CAT_ACTIVE" },
-          Limit: 10,
-          ConsistentRead: true,
-        }),
-      );
-      if ((slots.Count ?? 0) >= 10) return false;
-      await this.client.send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Put: {
-                TableName: this.table,
-                Item: { ...this.key(owner, "BATCH", batch.id), ...batch },
-                ConditionExpression: "attribute_not_exists(pk)",
-              },
-            },
-            { Put: { TableName: this.table, Item: { pk: "CAT_ACTIVE", sk: batch.id, owner } } },
-          ],
-        }),
-      );
+      const slots = await this.e.categoryActive.query
+        .primary({})
+        .go({ limit: 10, consistent: true });
+      if (slots.data.length >= 10) return false;
+      const result = await this.service.transaction
+        .write((e) => [
+          e.categoryBatch.create({ owner, ...batch }).commit(),
+          e.categoryActive.put({ batchId: batch.id, owner }).commit(),
+        ])
+        .go();
+      if (!committed(result)) throw new Error("Classification batch already exists.");
       return true;
     } finally {
       await this.release("global", token);
     }
   }
   async finish(owner: string, id: string) {
-    await this.client.send(
-      new TransactWriteCommand({
-        TransactItems: [
-          { Delete: { TableName: this.table, Key: this.key(owner, "BATCH", id) } },
-          { Delete: { TableName: this.table, Key: { pk: "CAT_ACTIVE", sk: id } } },
-        ],
-      }),
+    committed(
+      await this.service.transaction
+        .write((e) => [
+          e.categoryBatch.delete({ owner, id }).commit(),
+          e.categoryActive.delete({ batchId: id }).commit(),
+        ])
+        .go(),
     );
   }
   async acquire(owner: string, token: string, duration = 150000) {
     try {
-      await this.client.send(
-        new UpdateCommand({
-          TableName: this.table,
-          Key: this.key(owner, "WORK"),
-          UpdateExpression: "SET leaseUntil = :until, #token = :token",
-          ExpressionAttributeNames: { "#token": "token" },
-          ConditionExpression: "attribute_not_exists(leaseUntil) OR leaseUntil < :now",
-          ExpressionAttributeValues: {
-            ":until": Date.now() + duration,
-            ":now": Date.now(),
-            ":token": token,
-          },
-        }),
-      );
+      await this.e.categoryWork
+        .update({ owner })
+        .set({ leaseUntil: Date.now() + duration, token })
+        .where((a, o) => `${o.notExists(a.leaseUntil)} OR ${o.lt(a.leaseUntil, Date.now())}`)
+        .go();
       return true;
     } catch (error) {
-      if (conditionalFailure(error)) return false;
+      if (hasErrorName(error, "ConditionalCheckFailedException")) return false;
       throw error;
     }
   }
   async release(owner: string, token: string, error: string | null = null, retryDelay = 1800000) {
     try {
-      await this.client.send(
-        new UpdateCommand({
-          TableName: this.table,
-          Key: this.key(owner, "WORK"),
-          UpdateExpression:
-            "SET leaseUntil = :zero, #error = :error, lastRunAt = :now, retryAfter = :retry",
-          ConditionExpression: "#token = :token",
-          ExpressionAttributeNames: { "#error": "error", "#token": "token" },
-          ExpressionAttributeValues: {
-            ":zero": 0,
-            ":error": error,
-            ":retry": error ? Date.now() + retryDelay : 0,
-            ":now": new Date().toISOString(),
-            ":token": token,
-          },
-        }),
-      );
+      await this.e.categoryWork
+        .update({ owner })
+        .set({
+          leaseUntil: 0,
+          error,
+          lastRunAt: new Date().toISOString(),
+          retryAfter: error ? Date.now() + retryDelay : 0,
+        })
+        .where((a, o) => o.eq(a.token, token))
+        .go();
     } catch (error) {
-      if (!conditionalFailure(error)) throw error;
+      if (!hasErrorName(error, "ConditionalCheckFailedException")) throw error;
     }
   }
   async workState(owner: string) {
-    return this.read<{ error?: string; lastRunAt?: string; retryAfter?: number }>(
-      this.key(owner, "WORK"),
-    );
+    const { data } = await this.e.categoryWork.get({ owner }).go({ consistent: true });
+    return data
+      ? {
+          ...(data.error ? { error: data.error } : {}),
+          ...(data.lastRunAt ? { lastRunAt: data.lastRunAt } : {}),
+          ...(data.retryAfter !== undefined ? { retryAfter: data.retryAfter } : {}),
+        }
+      : undefined;
   }
 }

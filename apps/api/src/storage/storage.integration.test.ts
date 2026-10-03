@@ -1757,12 +1757,16 @@ it("categorises queued imports, preserves manual choices and rejects stale batch
     find: async () => null,
   };
   const service = new CategorisationService(store, provider, true);
-  await service.save(owner, { categories: [category], expectedVersion: 0, recategorise: false });
+  await service.save(owner, {
+    categories: [{ ...category, budgetCategory: " Food " }],
+    expectedVersion: 0,
+    recategorise: false,
+  });
   expect((await store.categorisation.config(owner)).categories).toEqual([
-    { id: category.id, name: category.name },
+    { id: category.id, name: category.name, budgetCategory: "Food" },
   ]);
   expect((await service.status(owner)).categories).toEqual([
-    { id: category.id, name: category.name },
+    { id: category.id, name: category.name, budgetCategory: "Food" },
   ]);
   await service.work(owner);
   expect(submissions).toBe(1);

@@ -42,12 +42,14 @@ export type {
   CashEvent,
 } from "./models";
 export { calculateBudget, monthlyLine } from "./budget";
+export { trackBudget, monthPace } from "./budget-tracking";
+export type { BudgetTracking, TrackedCategory, TrackingStatus } from "./budget-tracking";
 export type { BudgetDestination } from "./budget";
 export { inferSavings } from "./savings";
 export type { SavingsMetrics, SavingsResult } from "./savings";
 export { projectSavings } from "./projections";
 
-export { canonicalCategory, normalizeBudgetCategories } from "./categories";
+export { canonicalCategory, expenseCategories, normalizeBudgetCategories } from "./categories";
 
 export { readingAt, savingsConnectionIds } from "./snapshot-reading";
 export { budgetFlow } from "./budget-flow";

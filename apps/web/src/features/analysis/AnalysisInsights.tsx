@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   Alert,
   Box,
@@ -14,7 +13,6 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from "@mui/material";
-import { backgroundApi } from "../../lib/api";
 import { errorMessage } from "../../lib/data";
 import { BreakdownChart } from "../../components/charts/BreakdownChart";
 import { TimelineChart } from "../../components/charts/TimelineChart";
@@ -22,6 +20,7 @@ import { chartMoney } from "../../components/charts/ChartFrame";
 import { colors } from "../../components/charts/chartData";
 import { categoryColour } from "./categoryColours";
 import { mergeInsights, monthRange } from "./insightsModel";
+import { useInsights } from "./useInsights";
 export function AnalysisInsights({
   selectedMonth,
   onMonthChange,
@@ -32,22 +31,8 @@ export function AnalysisInsights({
   const [showIncoming, setShowIncoming] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState("GBP");
   const range = monthRange(selectedMonth);
-  const query = useInfiniteQuery({
-    queryKey: ["transaction-insights", selectedMonth],
-    queryFn: ({ pageParam }) =>
-      backgroundApi.analysis.insights.query({
-        ...range,
-        ...(pageParam ? { cursor: pageParam } : {}),
-      }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-    refetchInterval: 60000,
-  });
-  const { hasNextPage, isFetching, isFetchNextPageError, isError, fetchNextPage } = query;
-  useEffect(() => {
-    if (hasNextPage && !isFetching && !isFetchNextPageError && !isError) void fetchNextPage();
-  }, [hasNextPage, isFetching, isFetchNextPageError, isError, fetchNextPage]);
-  const pages = query.data?.pages ?? [];
+  const { query, pages, ready } = useInsights(range);
+  const { isFetchNextPageError, fetchNextPage } = query;
   const currencies = [
     ...new Set(pages.flatMap((page) => page.currencies.map((value) => value.currency))),
   ].sort();
@@ -55,7 +40,6 @@ export function AnalysisInsights({
     ? selectedCurrency
     : (currencies[0] ?? selectedCurrency);
   const summary = mergeInsights(pages, currency, range);
-  const ready = !!query.data && !hasNextPage;
   const money = (value: number) => chartMoney(value, currency);
   return (
     <Box sx={{ mb: 3 }}>

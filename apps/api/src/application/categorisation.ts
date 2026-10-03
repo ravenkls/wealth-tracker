@@ -2,7 +2,11 @@ import { transactionInsights } from "./transaction-insights";
 import type { TransactionRange } from "../storage/endute-transactions";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { GeminiError, type CategorisationProvider } from "../integrations/gemini";
+import {
+  GeminiError,
+  type CategorisationProvider,
+  type PurchaseCategory,
+} from "../integrations/gemini";
 import type { WealthStore } from "../storage/records";
 import type { ClassificationBatch } from "../storage/categorisation";
 import { InputError } from "./snapshot-service";
@@ -17,6 +21,7 @@ export const categoriesInput = z
         z.object({
           id: z.uuid(),
           name: z.string().trim().min(1).max(80),
+          budgetCategory: z.string().trim().max(80).nullable().default(null),
         }),
       )
       .max(50),
@@ -59,7 +64,11 @@ export class CategorisationService {
     );
     return {
       ...config,
-      categories: config.categories.map(({ id, name }) => ({ id, name })),
+      categories: config.categories.map(({ id, name, budgetCategory }) => ({
+        id,
+        name,
+        budgetCategory: budgetCategory ?? null,
+      })),
       configured: this.configured,
       queued: pending.items.filter((i) => !processing.has(i.id)).length,
       moreQueued: pending.more,
@@ -71,7 +80,7 @@ export class CategorisationService {
       lastRunAt: state?.lastRunAt ?? null,
     };
   }
-  async save(owner: string, input: z.infer<typeof categoriesInput>) {
+  async save(owner: string, input: z.input<typeof categoriesInput>) {
     await this.requireConnection(owner);
     const parsed = categoriesInput.parse(input);
     const first = (await this.store.categorisation.config(owner)).version === 0;
@@ -312,7 +321,7 @@ export class CategorisationService {
   private async submit(
     owner: string,
     batch: ClassificationBatch,
-    categories: z.infer<typeof categoriesInput>["categories"],
+    categories: PurchaseCategory[],
     suppliedRows?: Map<string, StoredEnduteTransaction>,
   ) {
     const current = await this.store.categorisation.config(owner);

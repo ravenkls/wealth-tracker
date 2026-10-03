@@ -4,6 +4,7 @@ import type { StoredEnduteTransaction } from "../storage/endute-transactions";
 export interface PurchaseCategory {
   id: string;
   name: string;
+  budgetCategory?: string | null;
 }
 export interface ClassificationInput {
   key: string;

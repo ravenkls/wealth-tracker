@@ -170,7 +170,9 @@ export function analysisEntities({ client, table }: Config) {
           owner: required,
           version: { type: "number", required: true },
           categories: {
-            type: CustomAttributeType<{ id: string; name: string }[]>("any"),
+            type: CustomAttributeType<
+              { id: string; name: string; budgetCategory?: string | null }[]
+            >("any"),
             required: true,
           },
           generation: required,

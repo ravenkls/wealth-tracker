@@ -1,6 +1,8 @@
 import { CategoriesPanel, useCategories } from "./CategoriesPanel";
 import { CategoryPill } from "./CategoryPill";
 import { AnalysisInsights } from "./AnalysisInsights";
+import { BudgetTracking } from "./BudgetTracking";
+import { expenseCategories } from "@wealth/domain";
 import { monthRange } from "./insightsModel";
 import { useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -120,7 +122,12 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
           setPageIndex(0);
         }}
       />
-      <CategoriesPanel />
+      <BudgetTracking
+        plan={data.budget?.plan ?? null}
+        selectedMonth={selectedMonth}
+        links={categories.data?.categories ?? []}
+      />
+      <CategoriesPanel budgetCategories={data.budget ? expenseCategories(data.budget.plan) : []} />
       <DataTable
         id="analysis"
         loading={transactions.isPending || transactions.isPlaceholderData}

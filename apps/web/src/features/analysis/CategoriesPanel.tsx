@@ -14,6 +14,7 @@ import {
   DialogTitle,
   FormControlLabel,
   IconButton,
+  MenuItem,
   Paper,
   Skeleton,
   Stack,
@@ -31,7 +32,12 @@ export function useCategories() {
     refetchInterval: 30000,
   });
 }
-export function CategoriesPanel() {
+type DraftCategory = { id: string; name: string; budgetCategory: string | null };
+export function CategoriesPanel({
+  budgetCategories,
+}: {
+  readonly budgetCategories: readonly string[];
+}) {
   const status = useCategories();
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -39,7 +45,7 @@ export function CategoriesPanel() {
   const [expanded, setExpanded] = useState(false);
   const [recategorise, setRecategorise] = useState(false);
   const [version, setVersion] = useState(0);
-  const [draft, setDraft] = useState<{ id: string; name: string }[]>([]);
+  const [draft, setDraft] = useState<DraftCategory[]>([]);
   async function invalidate() {
     await Promise.all([
       client.invalidateQueries({ queryKey: ["purchase-categories"] }),
@@ -110,7 +116,13 @@ export function CategoriesPanel() {
             size="small"
             disabled={!value}
             onClick={() => {
-              setDraft(value!.categories.map(({ id, name }) => ({ id, name })));
+              setDraft(
+                value!.categories.map(({ id, name, budgetCategory }) => ({
+                  id,
+                  name,
+                  budgetCategory,
+                })),
+              );
               setVersion(value!.version);
               setRecategorise(false);
               save.reset();
@@ -250,7 +262,7 @@ export function CategoriesPanel() {
           if (!save.isPending) setOpen(false);
         }}
         fullWidth
-        maxWidth="sm"
+        maxWidth="md"
         aria-labelledby="category-dialog-title"
       >
         <DialogTitle id="category-dialog-title">Your categories</DialogTitle>
@@ -280,6 +292,38 @@ export function CategoriesPanel() {
                     )
                   }
                 />
+                <TextField
+                  select
+                  label="Budget category"
+                  size="small"
+                  value={category.budgetCategory ?? ""}
+                  disabled={save.isPending}
+                  onChange={(e) =>
+                    setDraft((previous) =>
+                      previous.map((c) =>
+                        c.id === category.id ? { ...c, budgetCategory: e.target.value || null } : c,
+                      ),
+                    )
+                  }
+                  sx={{ width: 190, flexShrink: 0 }}
+                >
+                  <MenuItem value="">
+                    <em>Not budgeted</em>
+                  </MenuItem>
+                  {budgetCategories.map((name) => (
+                    <MenuItem key={name} value={name}>
+                      {name}
+                    </MenuItem>
+                  ))}
+                  {category.budgetCategory &&
+                    !budgetCategories.some(
+                      (name) => name.toLowerCase() === category.budgetCategory!.toLowerCase(),
+                    ) && (
+                      <MenuItem value={category.budgetCategory}>
+                        {category.budgetCategory} (not in budget)
+                      </MenuItem>
+                    )}
+                </TextField>
                 <IconButton
                   disabled={save.isPending}
                   aria-label={`Remove category ${index + 1}`}
@@ -304,7 +348,10 @@ export function CategoriesPanel() {
               startIcon={<Icon name="plus" />}
               disabled={draft.length >= 50 || save.isPending}
               onClick={() =>
-                setDraft((previous) => [...previous, { id: crypto.randomUUID(), name: "" }])
+                setDraft((previous) => [
+                  ...previous,
+                  { id: crypto.randomUUID(), name: "", budgetCategory: null },
+                ])
               }
             >
               Add category

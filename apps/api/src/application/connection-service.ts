@@ -166,7 +166,7 @@ export class ConnectionService {
         if (progress[done]) continue;
         const page = await this.provider[source](credentials, progress[next] ?? undefined);
         for (const event of page.events) {
-          await this.store.events.upsertImported(
+          await this.store.events.upsert(
             `${userId}/${id}`,
             hash(`${event.source}:${event.reference}`),
             event,

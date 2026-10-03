@@ -384,6 +384,19 @@ it("persists theme per user and rejects stale preference writes", async () => {
   });
 });
 
+it("persists overview asset selection per user with the latest write winning", async () => {
+  const { WealthService } = await import("../application/wealth-service");
+  const service = new WealthService(store);
+  expect((await service.bootstrap("overview-user")).overview).toBeNull();
+  await service.saveOverview("overview-user", { netWorthAssets: ["cash"] });
+  await service.saveOverview("overview-user", { netWorthAssets: ["cash", "pensions"] });
+  const reloaded = new WealthService(new WealthStore(client, table));
+  expect((await reloaded.bootstrap("overview-user")).overview).toEqual({
+    netWorthAssets: ["cash", "pensions"],
+  });
+  expect((await reloaded.bootstrap("other-overview-user")).overview).toBeNull();
+});
+
 it("records all manual asset types, preserves old classifications and recomputes investment corrections", async () => {
   const { WealthService } = await import("../application/wealth-service");
   const { SnapshotService } = await import("../application/snapshot-service");

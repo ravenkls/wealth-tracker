@@ -12,6 +12,7 @@ import type {
   ManualAccount,
   Snapshot,
   BankConnection,
+  OverviewSettings,
 } from "@wealth/domain";
 
 export interface Stored<T> {
@@ -62,7 +63,7 @@ export class Records<T extends object> {
     }
     return record;
   }
-  async upsertImported(owner: string, id: string, data: T, now: Date) {
+  async upsert(owner: string, id: string, data: T, now = new Date()) {
     await this.entity
       .upsert({ owner, id, data, updatedAt: now.toISOString() })
       .ifNotExists({ version: 1, createdAt: now.toISOString() })
@@ -106,6 +107,7 @@ export class WealthStore {
   readonly monzoAttempts: ReturnType<typeof monzoAttemptEntity>;
   readonly appearance: Records<{ mode: "dark" | "light" }>;
   readonly preferences: Records<TablePreferences>;
+  readonly overview: Records<OverviewSettings>;
   readonly accounts: Records<ManualAccount>;
   readonly budgets: Records<BudgetPlan>;
   readonly connections: Records<Connection>;
@@ -118,6 +120,7 @@ export class WealthStore {
     this.monzoAttempts = monzoAttemptEntity(client, table);
     this.appearance = new Records("appearance", client, table);
     this.preferences = new Records("preferences", client, table);
+    this.overview = new Records("overviewSettings", client, table);
     this.accounts = new Records("account", client, table);
     this.budgets = new Records("budget", client, table);
     this.connections = new Records("connection", client, table);

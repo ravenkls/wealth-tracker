@@ -8,6 +8,7 @@ import {
   normalizeBudgetCategories,
 } from "@wealth/domain";
 import type {
+  OverviewSettings,
   ManualAccountKind,
   TablePreferences,
   Pence,
@@ -73,6 +74,11 @@ export class WealthService {
     expectedVersion: number,
   ) {
     return this.store.preferences.save(userId, id, preferences, expectedVersion);
+  }
+  // Last write wins: a display preference toggled rapidly shouldn't raise version conflicts.
+  async saveOverview(userId: string, settings: OverviewSettings) {
+    await this.store.overview.upsert(userId, "current", settings);
+    return settings;
   }
   async saveBudget(userId: string, plan: BudgetPlan, expectedVersion: number) {
     const [accounts, connections, previous] = await Promise.all([
@@ -174,14 +180,16 @@ export class WealthService {
       .sort((a, b) => b.version - a.version);
   }
   async bootstrap(userId: string) {
-    const [accounts, connections, snapshots, budget, preferences, banks] = await Promise.all([
-      this.store.accounts.list(userId),
-      this.store.connections.list(userId),
-      this.store.snapshots.list(userId),
-      this.store.budgets.get(userId, "current"),
-      this.store.preferences.list(userId),
-      this.store.banks.list(userId),
-    ]);
+    const [accounts, connections, snapshots, budget, preferences, banks, overview] =
+      await Promise.all([
+        this.store.accounts.list(userId),
+        this.store.connections.list(userId),
+        this.store.snapshots.list(userId),
+        this.store.budgets.get(userId, "current"),
+        this.store.preferences.list(userId),
+        this.store.banks.list(userId),
+        this.store.overview.get(userId, "current"),
+      ]);
     const history = snapshots
       .map((record) => record.data)
       .sort((a, b) => a.month.localeCompare(b.month));
@@ -223,6 +231,7 @@ export class WealthService {
     return {
       budgetTargets,
       preferences: preferences.map(({ id, version, data }) => ({ id, version, preferences: data })),
+      overview: overview?.data ?? null,
       bankConnections: banks
         .filter((record) => !record.data.disconnected)
         .map((record) => publicBankConnection(record.data)),

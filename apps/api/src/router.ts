@@ -6,6 +6,7 @@ import type { MonzoService } from "./application/monzo-service";
 import { MonzoError } from "./integrations/monzo";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { netWorthAssets } from "@wealth/domain";
 import type { Profile } from "./storage/entities";
 import type { WealthService } from "./application/wealth-service";
 import type { ConnectionService } from "./application/connection-service";
@@ -72,6 +73,7 @@ export interface ApiDependencies {
     | "savePreferences"
     | "appearance"
     | "saveAppearance"
+    | "saveOverview"
   >;
   readonly connections: Pick<
     ConnectionService,
@@ -159,6 +161,21 @@ export function createRouter(d: ApiDependencies) {
         .mutation(({ ctx, input }) =>
           run(() => d.wealth.saveAppearance(ctx.user.userId, input.mode, input.expectedVersion)),
         ),
+    }),
+    overview: router({
+      save: protectedProcedure
+        .input(
+          z.object({
+            netWorthAssets: z
+              .array(z.enum(netWorthAssets))
+              .min(1)
+              .refine(
+                (assets) => new Set(assets).size === assets.length,
+                "Choose each asset once.",
+              ),
+          }),
+        )
+        .mutation(({ ctx, input }) => run(() => d.wealth.saveOverview(ctx.user.userId, input))),
     }),
     preferences: router({
       save: protectedProcedure

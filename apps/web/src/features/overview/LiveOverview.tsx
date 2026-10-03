@@ -1,5 +1,6 @@
 import { accountAsset } from "@wealth/domain";
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AssetFilter } from "./AssetFilter";
 import {
   allAssets,
@@ -9,6 +10,7 @@ import {
 } from "./assetSelection";
 import type { AssetKind } from "./assetSelection";
 import {
+  Alert,
   Box,
   Button,
   LinearProgress,
@@ -22,6 +24,7 @@ import { Link } from "react-router";
 import { formatGbp, formatMonth, pence } from "@wealth/domain";
 import type { HistoryRange, Pence } from "@wealth/domain";
 import type { AppData } from "../../lib/data";
+import { api } from "../../lib/api";
 import { PageHeading } from "../../components/PageHeading";
 import { TimelineChart } from "../../components/charts/TimelineChart";
 import { colors, historyPoints } from "../../components/charts/chartData";
@@ -90,7 +93,17 @@ export function LiveOverview({
   readonly onRecord: () => void;
 }) {
   const [range, setRange] = useState<HistoryRange>("1Y");
-  const [assets, setAssets] = useState<AssetKind[]>(allAssets);
+  const client = useQueryClient();
+  const [assets, setAssets] = useState<AssetKind[]>(
+    () => data.overview?.netWorthAssets ?? allAssets,
+  );
+  // A shared scope runs saves in order, so the last selection is the one stored.
+  const saveAssets = useMutation({
+    scope: { id: "overview-settings" },
+    mutationFn: (netWorthAssets: AssetKind[]) => api.overview.save.mutate({ netWorthAssets }),
+    onSuccess: (overview) =>
+      client.setQueryData<AppData>(["wealth"], (previous) => previous && { ...previous, overview }),
+  });
   const visibleAssets = selectedAssets(assets);
   const totalLabel = assets.length === allAssets.length ? "Net worth" : "Selected net worth";
   const latest = data.snapshots.at(-1),
@@ -111,9 +124,22 @@ export function LiveOverview({
           <Typography color="text.secondary" sx={{ fontSize: 13 }}>
             {latest ? `Recorded ${formatMonth(latest.month)}` : formatMonth(data.currentMonth)}
           </Typography>
-          {latest && <AssetFilter value={assets} onChange={setAssets} />}
+          {latest && (
+            <AssetFilter
+              value={assets}
+              onChange={(value) => {
+                setAssets(value);
+                saveAssets.mutate(value);
+              }}
+            />
+          )}
         </Stack>
       </PageHeading>
+      {saveAssets.isError && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Your asset selection couldn’t be saved. It will reset when you reload.
+        </Alert>
+      )}
       {!latest ? (
         <Paper variant="outlined" sx={{ p: { xs: 3, sm: 5 } }}>
           <Typography component="h2" sx={{ fontSize: 22, mb: 1 }}>

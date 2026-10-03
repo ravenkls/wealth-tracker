@@ -1,13 +1,13 @@
 import { pence, sumMoney } from "@wealth/domain";
-import type { Snapshot } from "@wealth/domain";
+import type { NetWorthAsset, Snapshot } from "@wealth/domain";
 import type { TimePoint } from "../../components/charts/chartData";
 
 export const assetOptions = [
   { key: "cash", field: "cash", label: "Cash" },
   { key: "investments", field: "investmentTotal", label: "Investments" },
   { key: "pensions", field: "pensions", label: "Pensions" },
-] as const;
-export type AssetKind = (typeof assetOptions)[number]["key"];
+] as const satisfies readonly { key: NetWorthAsset; field: string; label: string }[];
+export type AssetKind = NetWorthAsset;
 export const allAssets: AssetKind[] = assetOptions.map((asset) => asset.key);
 export function selectedAssets(selection: readonly AssetKind[]) {
   return assetOptions.filter((asset) => selection.includes(asset.key));

@@ -39,6 +39,7 @@ function mockServices() {
     wealth: {
       appearance: vi.fn<WealthService["appearance"]>(),
       saveAppearance: vi.fn<WealthService["saveAppearance"]>(),
+      saveOverview: vi.fn<WealthService["saveOverview"]>(),
       bootstrap: vi.fn<WealthService["bootstrap"]>(),
       savePreferences: vi.fn<WealthService["savePreferences"]>(),
       saveAccount: vi.fn<WealthService["saveAccount"]>(),
@@ -110,6 +111,35 @@ it("protects appearance preferences and validates theme choices", async () => {
     version: 1,
   });
   expect(services.wealth.saveAppearance).toHaveBeenCalledWith("theme-user", "light", 0);
+});
+
+it("protects overview settings and validates net-worth asset choices", async () => {
+  const services = mockServices();
+  const router = createRouter({ ...services, isDatabaseReady: async () => true });
+  const user = { userId: "overview-user", profile: { name: "User", email: "user@example.test" } };
+  await expect(
+    router
+      .createCaller({ user: null, trustedOrigin: true })
+      .overview.save({ netWorthAssets: ["cash"] }),
+  ).rejects.toThrow("Sign in");
+  await expect(
+    router.createCaller({ user, trustedOrigin: false }).overview.save({ netWorthAssets: ["cash"] }),
+  ).rejects.toThrow("origin");
+  const caller = router.createCaller({ user, trustedOrigin: true });
+  for (const [netWorthAssets, message] of [
+    [[], "Too small"],
+    [["cash", "cash"], "Choose each asset once"],
+    [["property"], "Invalid option"],
+  ] as const)
+    await expect(
+      caller.overview.save({ netWorthAssets: [...netWorthAssets] as never }),
+    ).rejects.toThrow(message);
+  expect(services.wealth.saveOverview).not.toHaveBeenCalled();
+  services.wealth.saveOverview.mockResolvedValue({ netWorthAssets: ["cash", "pensions"] });
+  await caller.overview.save({ netWorthAssets: ["cash", "pensions"] });
+  expect(services.wealth.saveOverview).toHaveBeenCalledWith("overview-user", {
+    netWorthAssets: ["cash", "pensions"],
+  });
 });
 
 it("protects Endute mutations and accepts only the single-key credential contract", async () => {

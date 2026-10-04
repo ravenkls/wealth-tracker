@@ -18,6 +18,8 @@ import {
   Skeleton,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { Icon } from "../../components/Icon";
@@ -27,11 +29,21 @@ import { CategoryDot } from "./CategoryPill";
 import { categoryPillStyles } from "./categoryColours";
 
 export type Rule = Awaited<ReturnType<typeof api.rules.list.query>>[number];
+type Direction = Rule["direction"];
 export interface RuleTarget {
   merchant: string;
   description: string | null;
   categoryId: string | null;
+  // Set when editing an existing rule.
+  direction?: Direction;
+  // Whether the transaction the rule was started from is money in or out.
+  flow?: "in" | "out";
 }
+const directionLabels = {
+  any: "Money in & out",
+  in: "Money in only",
+  out: "Money out only",
+} as const;
 const same = (a: string | null, b: string | null) =>
   (a ?? "").trim().replace(/\s+/g, " ").toLowerCase() ===
   (b ?? "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -80,8 +92,12 @@ function RuleForm({
 }) {
   const rules = useRules();
   const invalidate = useRuleInvalidation();
+  const [direction, setDirection] = useState<Direction>(target.direction ?? "any");
   const existing = rules.data?.find(
-    (rule) => same(rule.merchant, target.merchant) && same(rule.description, target.description),
+    (rule) =>
+      same(rule.merchant, target.merchant) &&
+      same(rule.description, target.description) &&
+      rule.direction === direction,
   );
   const [choice, setChoice] = useState<{ type: "category" | "exclude"; categoryId: string } | null>(
     null,
@@ -99,16 +115,30 @@ function RuleForm({
         categoryId: target.categoryId ?? categories[0]?.id ?? "",
       };
   const value = choice ?? initial;
+  // Editing a rule onto a different direction moves it rather than leaving a copy behind.
+  const original =
+    target.direction && target.direction !== direction
+      ? rules.data?.find(
+          (rule) =>
+            same(rule.merchant, target.merchant) &&
+            same(rule.description, target.description) &&
+            rule.direction === target.direction,
+        )
+      : undefined;
   const save = useMutation({
-    mutationFn: () =>
-      api.rules.save.mutate({
+    mutationFn: async () => {
+      await api.rules.save.mutate({
         merchant: target.merchant,
         description: target.description,
+        direction,
         action:
           value.type === "category"
             ? { type: "category", categoryId: value.categoryId }
             : { type: "exclude" },
-      }),
+      });
+      if (original)
+        await api.rules.delete.mutate({ id: original.id, expectedVersion: original.version });
+    },
     onSuccess: async () => {
       await invalidate();
       onClose();
@@ -145,7 +175,32 @@ function RuleForm({
             </>
           )}
         </Box>
+        <Typography sx={{ fontSize: 12, color: "text.secondary", mb: 0.75 }}>Applies to</Typography>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={direction}
+          onChange={(_, value: Direction | null) => {
+            if (value) {
+              setDirection(value);
+              setChoice(null);
+            }
+          }}
+          aria-label="Applies to"
+        >
+          {(["any", "in", "out"] as const).map((value) => (
+            <ToggleButton key={value} value={value}>
+              {directionLabels[value]}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+        {target.flow && (
+          <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.75 }}>
+            This transaction is money {target.flow}.
+          </Typography>
+        )}
         <RadioGroup
+          sx={{ mt: 2 }}
           value={value.type}
           onChange={(event) =>
             setChoice({ ...value, type: event.target.value as "category" | "exclude" })
@@ -278,6 +333,7 @@ export function RulesPanel({
                     sx={{ fontSize: 12, overflowWrap: "anywhere" }}
                   >
                     {rule.description ? `Description: ${rule.description}` : "Any description"}
+                    {rule.direction !== "any" && ` · ${directionLabels[rule.direction]}`}
                   </Typography>
                 </Box>
                 <Stack direction="row" sx={{ gap: 1, alignItems: "center" }}>
@@ -299,6 +355,7 @@ export function RulesPanel({
                         merchant: rule.merchant,
                         description: rule.description,
                         categoryId: category,
+                        direction: rule.direction,
                       })
                     }
                   >

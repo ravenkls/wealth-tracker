@@ -238,6 +238,7 @@ export function TransactionList({
               merchant: menu!.row.merchant,
               description: null,
               categoryId: menu!.row.categoryId,
+              flow: menu!.row.amount > 0 ? "in" : "out",
             });
             setMenu(null);
           }}
@@ -250,6 +251,7 @@ export function TransactionList({
               merchant: menu!.row.merchant,
               description: menu!.row.description,
               categoryId: menu!.row.categoryId,
+              flow: menu!.row.amount > 0 ? "in" : "out",
             });
             setMenu(null);
           }}

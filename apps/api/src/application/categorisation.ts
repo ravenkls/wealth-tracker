@@ -175,7 +175,12 @@ export class CategorisationService {
   async rules(owner: string) {
     await this.requireConnection(owner);
     return (await this.store.rules.list(owner))
-      .map((record) => ({ id: record.id, version: record.version, ...record.data }))
+      .map((record) => ({
+        id: record.id,
+        version: record.version,
+        ...record.data,
+        direction: record.data.direction ?? "any",
+      }))
       .sort((a, b) => a.merchant.localeCompare(b.merchant));
   }
   async saveRule(owner: string, input: unknown) {

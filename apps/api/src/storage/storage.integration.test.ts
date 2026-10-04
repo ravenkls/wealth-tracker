@@ -2022,10 +2022,21 @@ it("queries the selected month across pages without leaking adjacent dates or an
     excluded: false,
   });
   expect((await ruled()).get(third.id)).toMatchObject({ excluded: false });
+  await service.saveRule(f.owner, {
+    merchant: "Shop",
+    description: null,
+    direction: "in",
+    action: { type: "exclude" },
+  });
+  expect((await ruled()).get(enduteTransaction(2, "2026-09-01").id)).toMatchObject({
+    excluded: false,
+    customCategory: "Groceries",
+  });
   const saved = await service.rules(f.owner);
-  expect(saved.map((rule) => [rule.merchant, rule.description]).sort()).toEqual([
-    ["Shop", "transaction  3"],
-    ["shop", null],
+  expect(saved.map((rule) => [rule.merchant, rule.description, rule.direction]).sort()).toEqual([
+    ["Shop", null, "in"],
+    ["Shop", "transaction  3", "any"],
+    ["shop", null, "any"],
   ]);
   for (const rule of saved) await service.deleteRule(f.owner, rule.id, rule.version);
   rows = await ruled();

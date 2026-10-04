@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import type { StoredEnduteTransaction } from "../storage/endute-transactions";
+import { merchantName } from "./rules";
 
 type LedgerSource = StoredEnduteTransaction & {
   excluded: boolean;
@@ -30,8 +31,7 @@ export function ledgerEntries(rows: readonly LedgerSource[]): LedgerEntry[] {
         currency: row.currency,
         categoryId: row.classification?.categoryId ?? null,
         category: row.customCategory,
-        merchant:
-          row.enrichment.merchant_name?.trim() || row.counterparty?.trim() || "Unknown merchant",
+        merchant: merchantName(row),
         description: row.description,
         account: row.accountName,
       }))

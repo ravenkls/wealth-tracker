@@ -46,6 +46,7 @@ import { RecurringTab } from "./RecurringTab";
 import { TransactionsTab } from "./TransactionsTab";
 import { TrendsTab } from "./TrendsTab";
 import { useLedger } from "./useLedger";
+import { RulesPanel } from "./rules";
 
 const tabs = [
   ["overview", "Overview"],
@@ -147,6 +148,7 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
   const panel = (
     <Box sx={{ mt: 2.5 }}>
       <CategoriesPanel budgetCategories={plan ? [...monthlyBudgets(plan).keys()] : []} />
+      <RulesPanel categories={links} />
     </Box>
   );
   return (

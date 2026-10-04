@@ -12,6 +12,8 @@ const paths = {
   chevron: "m9 5 7 7-7 7",
   down: "m7 10 5 5 5-5",
   close: "m6 6 12 12 M6 18 18 6",
+  more: "M11 6a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M11 18a1 1 0 1 0 2 0a1 1 0 1 0-2 0",
+  trash: "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13",
   arrow: "M5 16 16 5 M5 5h11v11",
 };
 export function Icon({ name, size = 19 }: { name: keyof typeof paths; size?: number }) {

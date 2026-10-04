@@ -1969,4 +1969,69 @@ it("queries the selected month across pages without leaking adjacent dates or an
   expect(changed).toMatchObject({ description: "Changed", excluded: true });
   expect(ledger.entries[0]).toMatchObject({ categoryId: null, category: null });
   await expect(service.ledger("another-owner", range)).rejects.toThrow("Connect Endute");
+
+  const groceries = {
+    id: "11111111-1111-4111-8111-111111111111",
+    name: "Groceries",
+    budgetCategory: null,
+  };
+  await store.categorisation.save(f.owner, [groceries], 0, false);
+  await expect(
+    service.saveRule(f.owner, {
+      merchant: "Shop",
+      description: null,
+      action: { type: "category", categoryId: "22222222-2222-4222-8222-222222222222" },
+    }),
+  ).rejects.toThrow("existing category");
+  await service.saveRule(f.owner, {
+    merchant: " shop ",
+    description: null,
+    action: { type: "category", categoryId: groceries.id },
+  });
+  const third = enduteTransaction(3, "2026-09-01");
+  await service.saveRule(f.owner, {
+    merchant: "Shop",
+    description: "transaction  3",
+    action: { type: "exclude" },
+  });
+  const fourth = enduteTransaction(4, "2026-09-01");
+  await service.manual(f.owner, {
+    accountId: "bank",
+    transactionId: fourth.id,
+    categoryId: null,
+    expectedVersion: 0,
+  });
+  const ruled = async () =>
+    new Map((await service.list(f.owner, undefined, range, 100)).rows.map((row) => [row.id, row]));
+  let rows = await ruled();
+  expect(rows.get(enduteTransaction(2, "2026-09-01").id)).toMatchObject({
+    customCategory: "Groceries",
+    categorisationStatus: "rule",
+    excluded: false,
+  });
+  // The more specific rule wins, and a manual choice beats any rule.
+  expect(rows.get(third.id)).toMatchObject({ excluded: true, customCategory: null });
+  expect(rows.get(fourth.id)).toMatchObject({
+    customCategory: null,
+    categorisationStatus: "manual",
+  });
+  expect(rows.get(excluded.id)).toMatchObject({ excluded: true, customCategory: "Groceries" });
+  await f.transactions.exclude(f.owner, {
+    accountId: "bank",
+    transactionId: third.id,
+    excluded: false,
+  });
+  expect((await ruled()).get(third.id)).toMatchObject({ excluded: false });
+  const saved = await service.rules(f.owner);
+  expect(saved.map((rule) => [rule.merchant, rule.description]).sort()).toEqual([
+    ["Shop", "transaction  3"],
+    ["shop", null],
+  ]);
+  for (const rule of saved) await service.deleteRule(f.owner, rule.id, rule.version);
+  rows = await ruled();
+  expect(rows.get(enduteTransaction(2, "2026-09-01").id)).toMatchObject({
+    customCategory: null,
+    categorisationStatus: "pending",
+  });
+  await expect(service.rules("another-owner")).rejects.toThrow("Connect Endute");
 });

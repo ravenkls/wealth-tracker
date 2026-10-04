@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Box, Checkbox, Typography } from "@mui/material";
+import { Alert, Box, Checkbox, IconButton, Menu, MenuItem, Typography } from "@mui/material";
+import { Icon } from "../../components/Icon";
 import { DataTable } from "../../components/table/DataTable";
 import { api, backgroundApi } from "../../lib/api";
 import { errorMessage, type AppData } from "../../lib/data";
 import { CategoryPill } from "./CategoryPill";
 import { useCategories } from "./CategoriesPanel";
 import { monthRange } from "./ledgerModel";
+import { RuleDialog, type RuleTarget } from "./rules";
 
 export function TransactionsTab({
   data,
@@ -17,6 +19,8 @@ export function TransactionsTab({
 }) {
   const client = useQueryClient();
   const categories = useCategories();
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; target: RuleTarget } | null>(null);
+  const [rule, setRule] = useState<RuleTarget | null>(null);
   const [pages, setPages] = useState({
     month: selectedMonth,
     cursors: [undefined] as (string | undefined)[],
@@ -128,11 +132,9 @@ export function TransactionsTab({
             label: "Merchant",
             minWidth: 155,
             render: (row) => (
-              <Box sx={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>
-                {row.enrichment.merchant_name ?? row.counterparty ?? "—"}
-              </Box>
+              <Box sx={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{row.merchant}</Box>
             ),
-            value: (row) => row.enrichment.merchant_name ?? row.counterparty,
+            value: (row) => row.merchant,
             sortable: false,
           },
           {
@@ -142,26 +144,33 @@ export function TransactionsTab({
             value: (row) => row.customCategory,
             sortable: false,
             render: (row) => (
-              <CategoryPill
-                id={row.classification?.categoryId ?? null}
-                name={row.customCategory}
-                label={`Change category for ${row.description}`}
-                disabled={!categories.data?.version}
-                categories={categories.data?.categories ?? []}
-                onCommit={async (categoryId) => {
-                  await api.categories.assign.mutate({
-                    accountId: row.accountId,
-                    transactionId: row.id,
-                    categoryId,
-                    expectedVersion: row.classification?.version ?? 0,
-                  });
-                  await Promise.all([
-                    client.invalidateQueries({ queryKey: ["endute-transactions"] }),
-                    client.invalidateQueries({ queryKey: ["purchase-categories"] }),
-                    client.invalidateQueries({ queryKey: ["transaction-ledger"] }),
-                  ]);
-                }}
-              />
+              <Box>
+                <CategoryPill
+                  id={row.classification?.categoryId ?? null}
+                  name={row.customCategory}
+                  label={`Change category for ${row.description}`}
+                  disabled={!categories.data?.version}
+                  categories={categories.data?.categories ?? []}
+                  onCommit={async (categoryId) => {
+                    await api.categories.assign.mutate({
+                      accountId: row.accountId,
+                      transactionId: row.id,
+                      categoryId,
+                      expectedVersion: row.classification?.version ?? 0,
+                    });
+                    await Promise.all([
+                      client.invalidateQueries({ queryKey: ["endute-transactions"] }),
+                      client.invalidateQueries({ queryKey: ["purchase-categories"] }),
+                      client.invalidateQueries({ queryKey: ["transaction-ledger"] }),
+                    ]);
+                  }}
+                />
+                {row.categorisationStatus === "rule" && (
+                  <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.5 }}>
+                    Set by a rule
+                  </Typography>
+                )}
+              </Box>
             ),
           },
           {
@@ -224,6 +233,33 @@ export function TransactionsTab({
             value: (row) => row.currency,
             sortable: false,
           },
+          {
+            id: "actions",
+            label: "",
+            minWidth: 56,
+            align: "right",
+            value: () => null,
+            sortable: false,
+            render: (row) => (
+              <IconButton
+                size="small"
+                aria-label={`More actions for ${row.description}`}
+                aria-haspopup="menu"
+                onClick={(event) =>
+                  setMenu({
+                    anchor: event.currentTarget,
+                    target: {
+                      merchant: row.merchant,
+                      description: row.description,
+                      categoryId: row.classification?.categoryId ?? null,
+                    },
+                  })
+                }
+              >
+                <Icon name="more" size={18} />
+              </IconButton>
+            ),
+          },
         ]}
         pagination={{
           pageIndex,
@@ -242,6 +278,30 @@ export function TransactionsTab({
             }
           },
         }}
+      />
+      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
+        <MenuItem
+          disabled={menu?.target.merchant === "Unknown merchant"}
+          onClick={() => {
+            setRule({ ...menu!.target, description: null });
+            setMenu(null);
+          }}
+        >
+          Create rule for this merchant
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setRule(menu!.target);
+            setMenu(null);
+          }}
+        >
+          Create rule for this merchant &amp; description
+        </MenuItem>
+      </Menu>
+      <RuleDialog
+        target={rule}
+        categories={categories.data?.categories ?? []}
+        onClose={() => setRule(null)}
       />
     </>
   );

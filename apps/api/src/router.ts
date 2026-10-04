@@ -1,4 +1,5 @@
 import { categoriesInput, type CategorisationService } from "./application/categorisation";
+import { merchantName, ruleInput } from "./application/rules";
 import type { EnduteTransactionsService } from "./application/endute-transactions";
 import type { EnduteService } from "./application/endute-service";
 import { EnduteError } from "./integrations/endute";
@@ -58,7 +59,15 @@ export interface ApiContext {
 export interface ApiDependencies {
   readonly categorisation?: Pick<
     CategorisationService,
-    "status" | "save" | "recategorise" | "manual" | "list" | "ledger"
+    | "status"
+    | "save"
+    | "recategorise"
+    | "manual"
+    | "list"
+    | "ledger"
+    | "rules"
+    | "saveRule"
+    | "deleteRule"
   >;
   readonly analysis?: Pick<EnduteTransactionsService, "status" | "list" | "sync" | "exclude">;
   readonly endute?: Pick<EnduteService, "connect" | "refresh" | "select" | "disconnect">;
@@ -246,6 +255,8 @@ export function createRouter(d: ApiDependencies) {
                       excluded: false,
                       customCategory: null,
                       classification: null,
+                      merchant: merchantName(row),
+                      rule: null,
                       categorisationStatus: "pending",
                     })),
                   })),
@@ -291,6 +302,19 @@ export function createRouter(d: ApiDependencies) {
           }),
         )
         .mutation(({ ctx, input }) => run(() => categorisation().manual(ctx.user.userId, input))),
+    }),
+    rules: router({
+      list: protectedProcedure.query(({ ctx }) =>
+        run(() => categorisation().rules(ctx.user.userId)),
+      ),
+      save: protectedProcedure
+        .input(ruleInput)
+        .mutation(({ ctx, input }) => run(() => categorisation().saveRule(ctx.user.userId, input))),
+      delete: protectedProcedure
+        .input(z.object({ id: z.string().regex(/^[0-9a-f]{32}$/), expectedVersion }))
+        .mutation(({ ctx, input }) =>
+          run(() => categorisation().deleteRule(ctx.user.userId, input.id, input.expectedVersion)),
+        ),
     }),
     endute: router({
       connect: protectedProcedure

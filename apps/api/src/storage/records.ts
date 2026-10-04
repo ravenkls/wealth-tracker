@@ -1,3 +1,4 @@
+import type { TransactionRule } from "../application/rules";
 import { CategorisationStore } from "./categorisation";
 import { EnduteTransactionStore } from "./endute-transactions";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
@@ -115,6 +116,7 @@ export class WealthStore {
   readonly revisions: Records<Snapshot>;
   readonly operations: Records<SaveReceipt>;
   readonly events: Records<CashEvent>;
+  readonly rules: Records<TransactionRule>;
   constructor(client: DynamoDBDocumentClient, table: string) {
     this.banks = new Records("bankConnection", client, table);
     this.monzoAttempts = monzoAttemptEntity(client, table);
@@ -128,6 +130,7 @@ export class WealthStore {
     this.revisions = new Records("revision", client, table);
     this.operations = new Records("operation", client, table);
     this.events = new Records("event", client, table);
+    this.rules = new Records("transactionRule", client, table);
     this.service = wealthService(client, table, {
       bankConnection: this.banks.entity,
       account: this.accounts.entity,

@@ -172,7 +172,7 @@ export class EnduteTransactionStore {
     return new Map(
       items.map((item) => [
         item.id,
-        { bookingDate: item.bookingDate, digest: item.digest, excluded: !!item.excluded },
+        { bookingDate: item.bookingDate, digest: item.digest, excluded: item.excluded ?? null },
       ]),
     );
   }

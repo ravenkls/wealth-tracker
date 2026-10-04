@@ -1,4 +1,5 @@
 import { ledgerEntries } from "./ledger";
+import { merchantName, ruleId, ruleInput, ruleMatcher, type TransactionRule } from "./rules";
 import type { TransactionRange } from "../storage/endute-transactions";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -125,34 +126,79 @@ export class CategorisationService {
     await this.requireConnection(owner);
     const page = await this.store.transactions.list(owner, cursor, limit, range);
     const ids = page.rows.map((row) => `${row.accountId}#${row.id}`);
-    const [config, classifications, identities] = await Promise.all([
+    const [config, classifications, identities, rules] = await Promise.all([
       this.store.categorisation.config(owner),
       this.store.categorisation.classifications(owner, ids),
       this.store.transactions.identities(owner, ids),
+      this.store.rules.list(owner),
     ]);
+    const match = ruleMatcher(rules.map((record) => record.data));
     return {
       ...page,
       rows: page.rows.map((row) => {
         const result = classifications.get(`${row.accountId}#${row.id}`);
         const identity = identities.get(`${row.accountId}#${row.id}`);
-        const category = config.categories.find((c) => c.id === result?.categoryId);
+        const rule = match(row);
+        // Precedence: a manual choice on the transaction, then a rule, then Gemini.
+        const ruledId =
+          result?.source !== "manual" && rule?.action.type === "category"
+            ? rule.action.categoryId
+            : null;
+        const ruled = config.categories.find((c) => c.id === ruledId);
+        const category = ruled ?? config.categories.find((c) => c.id === result?.categoryId);
         return {
           ...row,
-          excluded: identity?.excluded ?? false,
+          merchant: merchantName(row),
+          excluded: identity?.excluded ?? rule?.action.type === "exclude",
           customCategory: category?.name ?? null,
-          classification: result ? { ...result, categoryId: category?.id ?? null } : null,
-          categorisationStatus: result?.failed
-            ? "failed"
-            : !result
-              ? "pending"
-              : result.source === "manual"
-                ? "manual"
-                : result.generation !== config.generation || result.digest !== identity?.digest
-                  ? "pending"
-                  : "complete",
+          classification: result
+            ? { ...result, categoryId: category?.id ?? null }
+            : ruled
+              ? { categoryId: ruled.id, version: 0 }
+              : null,
+          rule: rule ? ruleId(rule) : null,
+          categorisationStatus: ruled
+            ? "rule"
+            : result?.failed
+              ? "failed"
+              : !result
+                ? "pending"
+                : result.source === "manual"
+                  ? "manual"
+                  : result.generation !== config.generation || result.digest !== identity?.digest
+                    ? "pending"
+                    : "complete",
         };
       }),
     };
+  }
+  async rules(owner: string) {
+    await this.requireConnection(owner);
+    return (await this.store.rules.list(owner))
+      .map((record) => ({ id: record.id, version: record.version, ...record.data }))
+      .sort((a, b) => a.merchant.localeCompare(b.merchant));
+  }
+  async saveRule(owner: string, input: unknown) {
+    await this.requireConnection(owner);
+    const parsed = ruleInput.parse(input);
+    if (parsed.action.type === "category") {
+      const { categoryId } = parsed.action;
+      if (
+        !(await this.store.categorisation.config(owner)).categories.some((c) => c.id === categoryId)
+      )
+        throw new InputError("Choose an existing category.");
+    }
+    const id = ruleId(parsed);
+    const existing = await this.store.rules.list(owner);
+    if (existing.length >= 200 && !existing.some((record) => record.id === id))
+      throw new InputError("Up to 200 rules can be saved.");
+    const rule: TransactionRule = { ...parsed, createdAt: new Date().toISOString() };
+    await this.store.rules.upsert(owner, id, rule);
+    return { id };
+  }
+  async deleteRule(owner: string, id: string, expectedVersion: number) {
+    await this.requireConnection(owner);
+    await this.store.rules.remove(owner, id, expectedVersion);
   }
   async ledger(owner: string, range: TransactionRange, cursor?: string) {
     const page = await this.list(owner, cursor, range, 500);

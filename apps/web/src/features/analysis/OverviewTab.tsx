@@ -10,7 +10,8 @@ import {
   Typography,
 } from "@mui/material";
 import { TimelineChart } from "../../components/charts/TimelineChart";
-import { colors } from "../../components/charts/chartData";
+import { BreakdownChart } from "../../components/charts/BreakdownChart";
+import { colors, palette } from "../../components/charts/chartData";
 import { categoryColour } from "./categoryColours";
 import { CategoryDot } from "./CategoryPill";
 import { change, type Analysis } from "./ledgerModel";
@@ -223,9 +224,12 @@ export function OverviewTab({
       {budget}
 
       <Box sx={grid({ md: "repeat(2,minmax(0,1fr))" })}>
-        <Section title="Top merchants" subtitle="Where most of this month's money went">
-          <TopMerchants analysis={analysis} money={money} onMerchant={onMerchant} />
-        </Section>
+        <SpendingSplit
+          analysis={analysis}
+          money={money}
+          onCategory={onCategory}
+          onMerchant={onMerchant}
+        />
         {analysis.partial ? (
           <Section title="Coming up" subtitle="Regular payments expected in the next 30 days">
             <Upcoming
@@ -390,43 +394,82 @@ function CategoryList({
   );
 }
 
-function TopMerchants({
+const SLICES = 7;
+function SpendingSplit({
   analysis,
   money,
+  onCategory,
   onMerchant,
 }: {
   readonly analysis: Analysis;
   readonly money: (value: number) => string;
+  readonly onCategory: (id: string) => void;
   readonly onMerchant: (name: string) => void;
 }) {
-  const rows = analysis.merchants
+  const [by, setBy] = useState<"category" | "merchant">("category");
+  const merchants = analysis.merchants
     .filter((merchant) => merchant.spent > 0)
     .sort((a, b) => b.spent - a.spent);
-  if (!rows.length) return <Muted>No outgoing merchant transactions.</Muted>;
+  const rows =
+    by === "category"
+      ? analysis.categories
+          .filter((category) => category.spent > 0)
+          .map((category) => ({
+            id: category.id,
+            name: category.name,
+            value: category.spent,
+            color: categoryColour(category.id),
+          }))
+      : merchants.map((merchant, index) => ({
+          id: merchant.key,
+          name: merchant.name,
+          value: merchant.spent,
+          color: palette[index % palette.length]!,
+        }));
+  const rest = rows.slice(SLICES);
+  const points = [
+    ...rows.slice(0, SLICES),
+    ...(rest.length
+      ? [
+          {
+            id: "other",
+            name: `Other (${rest.length} more)`,
+            value: rest.reduce((sum, row) => sum + row.value, 0),
+            color: "#5d6673",
+            inert: true,
+          },
+        ]
+      : []),
+  ];
   return (
-    <Stack spacing={1.5}>
-      {rows.slice(0, 8).map((merchant) => (
-        <Box key={merchant.key}>
-          <Stack direction="row" sx={{ gap: 1, alignItems: "center", mb: 0.5 }}>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <MerchantLink name={merchant.name} onClick={() => onMerchant(merchant.name)} />
-            </Box>
-            {merchant.isNew && (
-              <Typography
-                sx={{ fontSize: 10, fontWeight: 600, color: "primary.main", letterSpacing: ".4px" }}
-              >
-                NEW
-              </Typography>
-            )}
-            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{money(merchant.spent)}</Typography>
-          </Stack>
-          <ShareBar
-            value={merchant.spent / rows[0]!.spent}
-            colour={categoryColour(merchant.categoryId)}
-          />
-        </Box>
-      ))}
-    </Stack>
+    <Section
+      title="Where it went"
+      subtitle={`${money(analysis.current.moneyOut)} of outgoings this month`}
+      action={
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={by}
+          onChange={(_, value: typeof by | null) => value && setBy(value)}
+          aria-label="Split spending by"
+        >
+          <ToggleButton value="category">Categories</ToggleButton>
+          <ToggleButton value="merchant">Merchants</ToggleButton>
+        </ToggleButtonGroup>
+      }
+    >
+      <BreakdownChart
+        kind="donut"
+        currency={analysis.currency}
+        points={points}
+        empty="No outgoings this month."
+        onSelect={(id) =>
+          by === "category"
+            ? onCategory(id)
+            : onMerchant(merchants.find((merchant) => merchant.key === id)!.name)
+        }
+      />
+    </Section>
   );
 }
 

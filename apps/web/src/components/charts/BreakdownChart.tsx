@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Box, Button, Stack, Typography, useMediaQuery } from "@mui/material";
+import { Box, Button, ButtonBase, Stack, Typography, useMediaQuery } from "@mui/material";
 import {
   Bar,
   BarChart,
@@ -22,11 +22,13 @@ export function BreakdownChart({
   currency = "GBP",
   kind = "bars",
   empty = "No amounts to show yet.",
+  onSelect,
 }: {
   readonly points: AmountPoint[];
   readonly currency?: string;
   readonly kind?: "bars" | "donut";
   readonly empty?: string;
+  readonly onSelect?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const narrow = useMediaQuery("(max-width: 599px)");
@@ -74,15 +76,44 @@ export function BreakdownChart({
             </PieChart>
           </ResponsiveContainer>
         </Box>
-        <Stack spacing={1.5} sx={{ maxHeight: { sm: 280 }, overflowY: "auto", pr: 1, py: 0.5 }}>
-          {positive.map((row) => (
-            <Box key={row.id} sx={{ borderLeft: "3px solid", borderColor: row.color, pl: 1.5 }}>
-              <Typography sx={{ fontSize: 13, overflowWrap: "anywhere" }}>{row.name}</Typography>
-              <Typography color="text.secondary" sx={{ fontSize: 12, mt: 0.3 }}>
-                {chartMoney(row.value, currency)} ({((row.value / total) * 100).toFixed(1)}%)
-              </Typography>
-            </Box>
-          ))}
+        <Stack spacing={1.25} sx={{ maxHeight: { sm: 280 }, overflowY: "auto", pr: 1, py: 0.5 }}>
+          {positive.map((row) => {
+            const selectable = !!onSelect && !row.inert;
+            return (
+              <Box
+                key={row.id}
+                {...(selectable ? { component: ButtonBase, onClick: () => onSelect(row.id) } : {})}
+                sx={{
+                  borderLeft: "3px solid",
+                  borderColor: row.color,
+                  pl: 1.5,
+                  py: 0.25,
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  borderRadius: 0,
+                  ...(selectable
+                    ? { "&:hover p:first-of-type": { textDecoration: "underline" } }
+                    : {}),
+                }}
+              >
+                <Stack direction="row" sx={{ gap: 1.5, alignItems: "baseline" }}>
+                  <Typography noWrap title={row.name} sx={{ fontSize: 13, flex: 1, minWidth: 0 }}>
+                    {row.name}
+                  </Typography>
+                  <Typography sx={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {chartMoney(row.value, currency)}
+                  </Typography>
+                  <Typography
+                    color="text.secondary"
+                    sx={{ fontSize: 12, width: 44, textAlign: "right", flexShrink: 0 }}
+                  >
+                    {((row.value / total) * 100).toFixed(0)}%
+                  </Typography>
+                </Stack>
+              </Box>
+            );
+          })}
         </Stack>
       </Box>
     );

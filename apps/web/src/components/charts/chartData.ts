@@ -34,6 +34,8 @@ export interface AmountPoint {
   name: string;
   value: number;
   color?: string;
+  // Aggregate rows such as "Other" have nothing to select.
+  inert?: boolean;
 }
 export interface TimePoint {
   label: string;

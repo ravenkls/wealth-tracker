@@ -121,7 +121,16 @@ export type HistoricalSnapshotInput = z.infer<typeof historicalSnapshotInput>;
 export type CorrectionInput = z.infer<typeof correctionInput>;
 
 export const preferencesInput = z.object({
-  id: z.enum(["accounts", "history", "expenses", "allocations", "connections", "analysis"]),
+  id: z.enum([
+    "accounts",
+    "history",
+    "expenses",
+    "allocations",
+    "connections",
+    "analysis",
+    "merchants",
+    "recurring",
+  ]),
   expectedVersion,
   preferences: z.object({
     columnOrder: z.array(identifier).max(50),

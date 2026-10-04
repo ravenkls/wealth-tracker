@@ -203,13 +203,13 @@ it("guards Analysis reads and refreshes and keeps pagination scoped to the signe
   await expect(caller.analysis.transactions({ from: "2026-09-01" })).rejects.toThrow(
     "Choose a date range",
   );
-  await expect(caller.analysis.insights({ from: "2026-10-01", to: "2026-09-01" })).rejects.toThrow(
+  await expect(caller.analysis.ledger({ from: "2026-10-01", to: "2026-09-01" })).rejects.toThrow(
     "Choose a date range",
   );
   await expect(
     app
       .createCaller({ user: null, trustedOrigin: true })
-      .analysis.insights({ from: "2026-09-01", to: "2026-09-30" }),
+      .analysis.ledger({ from: "2026-09-01", to: "2026-09-30" }),
   ).rejects.toThrow("Sign in");
   await caller.analysis.refresh();
   expect(analysis.sync).toHaveBeenCalledWith("owner");

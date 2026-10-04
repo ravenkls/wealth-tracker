@@ -1,4 +1,4 @@
-import { transactionInsights } from "./transaction-insights";
+import { ledgerEntries } from "./ledger";
 import type { TransactionRange } from "../storage/endute-transactions";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -154,9 +154,9 @@ export class CategorisationService {
       }),
     };
   }
-  async insights(owner: string, range: TransactionRange, cursor?: string) {
+  async ledger(owner: string, range: TransactionRange, cursor?: string) {
     const page = await this.list(owner, cursor, range, 500);
-    return { ...transactionInsights(page.rows), nextCursor: page.nextCursor };
+    return { entries: ledgerEntries(page.rows), nextCursor: page.nextCursor };
   }
   async work(owner: string) {
     if (((await this.store.categorisation.workState(owner))?.retryAfter ?? 0) > Date.now()) return;

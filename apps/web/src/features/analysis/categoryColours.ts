@@ -17,8 +17,16 @@ const colours = [
   "#c3b78a",
   "#9ba9bc",
 ];
+// Colours follow the user's category order so the first sixteen never collide.
+const assigned = new Map<string, string>();
+export function assignCategoryColours(ids: readonly string[]) {
+  assigned.clear();
+  ids.forEach((id, index) => assigned.set(id, colours[index % colours.length]!));
+}
 export function categoryColour(id: string | null | undefined) {
   if (!id || id === "uncategorised") return "#7e8795";
+  const known = assigned.get(id);
+  if (known) return known;
   let hash = 0;
   for (const letter of id) hash = (hash * 31 + letter.charCodeAt(0)) >>> 0;
   return colours[hash % colours.length]!;

@@ -43,12 +43,12 @@ const transactionPageInput = z
         Date.parse(input.to) - Date.parse(input.from) <= 366 * 86400000),
     "Choose a date range of up to one year.",
   );
-const insightsInput = z
+const ledgerInput = z
   .object({ cursor: z.string().max(2000).optional(), from: z.iso.date(), to: z.iso.date() })
   .refine(
     (input) =>
-      input.from <= input.to && Date.parse(input.to) - Date.parse(input.from) <= 366 * 86400000,
-    "Choose a date range of up to one year.",
+      input.from <= input.to && Date.parse(input.to) - Date.parse(input.from) <= 800 * 86400000,
+    "Choose a date range of up to two years.",
   );
 export interface ApiContext {
   readonly sessionHash?: string;
@@ -58,7 +58,7 @@ export interface ApiContext {
 export interface ApiDependencies {
   readonly categorisation?: Pick<
     CategorisationService,
-    "status" | "save" | "recategorise" | "manual" | "list" | "insights"
+    "status" | "save" | "recategorise" | "manual" | "list" | "ledger"
   >;
   readonly analysis?: Pick<EnduteTransactionsService, "status" | "list" | "sync" | "exclude">;
   readonly endute?: Pick<EnduteService, "connect" | "refresh" | "select" | "disconnect">;
@@ -251,11 +251,11 @@ export function createRouter(d: ApiDependencies) {
                   })),
           ),
         ),
-      insights: protectedProcedure
-        .input(insightsInput)
+      ledger: protectedProcedure
+        .input(ledgerInput)
         .query(({ ctx, input }) =>
           run(() =>
-            categorisation().insights(
+            categorisation().ledger(
               ctx.user.userId,
               { from: input.from, to: input.to },
               input.cursor,

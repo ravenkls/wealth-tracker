@@ -1958,13 +1958,15 @@ it("queries the selected month across pages without leaking adjacent dates or an
     next: null,
   });
   await f.transactions.sync(f.owner);
-  const insights = await service.insights(f.owner, range);
-  expect(insights.nextCursor).toBeNull();
-  expect(insights.currencies[0]?.totals).toEqual({ moneyIn: 0, moneyOut: 64 * 1280, count: 64 });
+  const ledger = await service.ledger(f.owner, range);
+  expect(ledger.nextCursor).toBeNull();
+  expect(ledger.entries).toHaveLength(64);
+  expect(ledger.entries.every((entry) => entry.amount === -1280)).toBe(true);
+  expect(ledger.entries.some((entry) => entry.key === `bank#${excluded.id}`)).toBe(false);
   const changed = (await service.list(f.owner, undefined, range, 100)).rows.find(
     (row) => row.id === excluded.id,
   );
   expect(changed).toMatchObject({ description: "Changed", excluded: true });
-  expect(insights.currencies[0]?.categories[0]?.name).toBe("Uncategorised");
-  await expect(service.insights("another-owner", range)).rejects.toThrow("Connect Endute");
+  expect(ledger.entries[0]).toMatchObject({ categoryId: null, category: null });
+  await expect(service.ledger("another-owner", range)).rejects.toThrow("Connect Endute");
 });

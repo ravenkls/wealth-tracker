@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Alert, Box, Chip, Paper, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
 import {
   formatGbp,
@@ -8,11 +7,8 @@ import {
   type BudgetPlan,
   type TrackedCategory,
 } from "@wealth/domain";
-import { errorMessage } from "../../lib/data";
-import { mergeInsights, monthRange } from "./insightsModel";
-import { useInsights } from "./useInsights";
 
-const statuses = {
+export const trackingStatuses = {
   "on-track": { label: "On track", colour: "success" },
   ahead: { label: "Ahead of pace", colour: "warning" },
   over: { label: "Over budget", colour: "error" },
@@ -20,30 +16,22 @@ const statuses = {
 export function BudgetTracking({
   plan,
   selectedMonth,
+  today,
   links,
+  spend,
+  error,
 }: {
   readonly plan: BudgetPlan | null;
   readonly selectedMonth: string;
+  readonly today: string;
   readonly links: readonly { id: string; budgetCategory: string | null }[];
+  readonly spend: ReadonlyMap<string, number> | null;
+  readonly error: string | null;
 }) {
-  const range = monthRange(selectedMonth);
-  const [today] = useState(() => new Date().toLocaleDateString("en-CA"));
-  const track = (spend: ReadonlyMap<string, number>) =>
-    trackBudget({ plan: plan!, links, month: month(selectedMonth), today, spend });
+  const track = (values: ReadonlyMap<string, number>) =>
+    trackBudget({ plan: plan!, links, month: month(selectedMonth), today, spend: values });
   const draft = plan ? track(new Map()) : null;
-  const insights = useInsights(range, !!draft?.tracked);
-  const error = insights.query.error;
-  const tracking =
-    plan && insights.ready
-      ? track(
-          new Map(
-            mergeInsights(insights.pages, "GBP", range).categories.map((category) => [
-              category.id,
-              category.moneyOut,
-            ]),
-          ),
-        )
-      : null;
+  const tracking = plan && spend ? track(spend) : null;
   const ready = !!tracking;
   const unlinked = draft?.categories.filter((category) => category.status === "unlinked") ?? [];
   return (
@@ -119,11 +107,11 @@ export function BudgetTracking({
           </Typography>
         ) : !draft.tracked ? (
           <Typography color="text.secondary" sx={{ fontSize: 13 }}>
-            Link your categories to budget categories using Edit categories below to see whether
-            you’re on track.
+            Link your categories to budget categories using Edit categories on the Categories tab to
+            see whether you’re on track.
           </Typography>
         ) : error ? (
-          <Alert severity="error">{errorMessage(error)}</Alert>
+          <Alert severity="error">{error}</Alert>
         ) : (
           <Box
             sx={{
@@ -153,7 +141,7 @@ export function BudgetTracking({
   );
 }
 function TrackedRow({ category }: { readonly category: TrackedCategory }) {
-  const status = statuses[category.status as keyof typeof statuses];
+  const status = trackingStatuses[category.status as keyof typeof trackingStatuses];
   const remaining = category.budget - category.spent;
   const share = (value: number) =>
     category.budget ? Math.min(100, (value / category.budget) * 100) : value ? 100 : 0;

@@ -78,7 +78,15 @@ export interface DataColumn<T> {
   sortable?: boolean;
   minWidth?: number;
 }
-type TableId = "accounts" | "history" | "expenses" | "allocations" | "connections" | "analysis";
+type TableId =
+  | "accounts"
+  | "history"
+  | "expenses"
+  | "allocations"
+  | "connections"
+  | "analysis"
+  | "merchants"
+  | "recurring";
 const empty: TablePreferences = { columnOrder: [], rowOrder: [], grouping: [], sorting: [] };
 export function DataTable<T extends object>({
   id,

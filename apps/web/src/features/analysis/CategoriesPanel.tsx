@@ -1,5 +1,5 @@
 import { CategoryDot } from "./CategoryPill";
-import { categoryPillStyles } from "./categoryColours";
+import { assignCategoryColours, categoryPillStyles } from "./categoryColours";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -28,7 +28,11 @@ import { errorMessage } from "../../lib/data";
 export function useCategories() {
   return useQuery({
     queryKey: ["purchase-categories"],
-    queryFn: () => backgroundApi.categories.status.query(),
+    queryFn: async () => {
+      const status = await backgroundApi.categories.status.query();
+      assignCategoryColours(status.categories.map((category) => category.id));
+      return status;
+    },
     refetchInterval: 30000,
   });
 }
@@ -49,7 +53,7 @@ export function CategoriesPanel({
   async function invalidate() {
     await Promise.all([
       client.invalidateQueries({ queryKey: ["purchase-categories"] }),
-      client.invalidateQueries({ queryKey: ["transaction-insights"] }),
+      client.invalidateQueries({ queryKey: ["transaction-ledger"] }),
       client.invalidateQueries({ queryKey: ["endute-transactions"] }),
     ]);
   }

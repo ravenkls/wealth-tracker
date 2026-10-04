@@ -1,26 +1,19 @@
 import { useState } from "react";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Box, Checkbox, IconButton, Menu, MenuItem, Typography } from "@mui/material";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Alert, Box, IconButton, LinearProgress, Paper, Stack, Typography } from "@mui/material";
 import { Icon } from "../../components/Icon";
-import { DataTable } from "../../components/table/DataTable";
-import { api, backgroundApi } from "../../lib/api";
-import { errorMessage, type AppData } from "../../lib/data";
-import { CategoryPill } from "./CategoryPill";
-import { useCategories } from "./CategoriesPanel";
+import { backgroundApi } from "../../lib/api";
+import { errorMessage } from "../../lib/data";
 import { monthRange } from "./ledgerModel";
-import { RuleDialog, type RuleTarget } from "./rules";
+import { TransactionList, type ManagedTransaction } from "./TransactionList";
 
 export function TransactionsTab({
-  data,
   selectedMonth,
+  onMerchant,
 }: {
-  readonly data: AppData;
   readonly selectedMonth: string;
+  readonly onMerchant: (name: string) => void;
 }) {
-  const client = useQueryClient();
-  const categories = useCategories();
-  const [menu, setMenu] = useState<{ anchor: HTMLElement; target: RuleTarget } | null>(null);
-  const [rule, setRule] = useState<RuleTarget | null>(null);
   const [pages, setPages] = useState({
     month: selectedMonth,
     cursors: [undefined] as (string | undefined)[],
@@ -29,15 +22,7 @@ export function TransactionsTab({
   // Paging restarts whenever the month changes.
   if (pages.month !== selectedMonth)
     setPages({ month: selectedMonth, cursors: [undefined], index: 0 });
-  const { cursors, index: pageIndex } = pages;
-  const cursor = cursors[pageIndex];
-  const setPageIndex = (index: number | ((previous: number) => number)) =>
-    setPages((previous) => ({
-      ...previous,
-      index: typeof index === "function" ? index(previous.index) : index,
-    }));
-  const setCursors = (update: (previous: (string | undefined)[]) => (string | undefined)[]) =>
-    setPages((previous) => ({ ...previous, cursors: update(previous.cursors) }));
+  const cursor = pages.cursors[pages.index];
   const transactions = useQuery({
     queryKey: ["endute-transactions", selectedMonth, cursor ?? "first"],
     queryFn: () =>
@@ -48,261 +33,93 @@ export function TransactionsTab({
     refetchInterval: 30000,
     placeholderData: keepPreviousData,
   });
-  const exclude = useMutation({
-    mutationFn: (input: { accountId: string; transactionId: string; excluded: boolean }) =>
-      api.analysis.exclude.mutate(input),
-    onSuccess: () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: ["endute-transactions"] }),
-        client.invalidateQueries({ queryKey: ["transaction-ledger"] }),
-      ]),
-  });
-  const rows = (transactions.data?.rows ?? []).map((row) => ({
-    ...row,
-    customCategory: "customCategory" in row ? row.customCategory : null,
-    classification: "classification" in row ? row.classification : null,
-    categorisationStatus: "categorisationStatus" in row ? row.categorisationStatus : "pending",
+  const next = transactions.isPlaceholderData ? null : transactions.data?.nextCursor;
+  const rows = (transactions.data?.rows ?? []).map((row): ManagedTransaction => ({
+    key: `${row.accountId}#${row.id}`,
+    accountId: row.accountId,
+    id: row.id,
+    date: row.booking_date,
+    amount: Number(row.amount) * 100,
+    currency: row.currency,
+    merchant: row.merchant,
+    description: row.description,
+    account: row.sandbox ? `${row.accountName} (sandbox)` : row.accountName,
+    categoryId: row.classification?.categoryId ?? null,
+    category: row.customCategory,
+    version: row.classification?.version ?? 0,
+    status: row.categorisationStatus,
+    excluded: row.excluded,
   }));
   return (
-    <>
-      {(transactions.isError || exclude.isError) && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {errorMessage(exclude.error ?? transactions.error)}
-        </Alert>
-      )}
-      <Typography color="text.secondary" sx={{ fontSize: 12, mb: 1.5 }}>
-        Excluded transactions are left out of every chart and total on this page, for example
-        transfers between your own accounts.
-      </Typography>
-      <DataTable
-        id="analysis"
-        loading={transactions.isPending || transactions.isPlaceholderData}
-        label="Transactions"
-        data={data}
-        rows={rows}
-        rowId={(row) => `${row.accountId}:${row.id}`}
-        columns={[
-          {
-            id: "date",
-            label: "Date",
-            minWidth: 120,
-            value: (row) => row.booking_date,
-            sortable: false,
-            render: (row) =>
-              new Date(`${row.booking_date}T00:00:00`).toLocaleDateString("en-GB", {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              }),
-          },
-          {
-            id: "account",
-            label: "Account",
-            minWidth: 155,
-            render: (row) => (
-              <Box sx={{ whiteSpace: "normal" }}>
-                <Typography sx={{ fontSize: 13 }}>{row.accountName}</Typography>
-                <Typography color="text.secondary" sx={{ fontSize: 11 }}>
-                  {row.institution}
-                </Typography>
-              </Box>
-            ),
-            value: (row) => `${row.institution} · ${row.accountName}`,
-            sortable: false,
-          },
-          {
-            id: "description",
-            label: "Description",
-            minWidth: 225,
-            value: (row) => row.description,
-            sortable: false,
-            render: (row) => (
-              <Box sx={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>
-                {row.description}
-                {row.sandbox && (
-                  <Typography color="text.secondary" sx={{ fontSize: 11 }}>
-                    Sandbox
-                  </Typography>
-                )}
-              </Box>
-            ),
-          },
-          {
-            id: "merchant",
-            label: "Merchant",
-            minWidth: 155,
-            render: (row) => (
-              <Box sx={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{row.merchant}</Box>
-            ),
-            value: (row) => row.merchant,
-            sortable: false,
-          },
-          {
-            id: "category",
-            label: "Category",
-            minWidth: 205,
-            value: (row) => row.customCategory,
-            sortable: false,
-            render: (row) => (
-              <Box>
-                <CategoryPill
-                  id={row.classification?.categoryId ?? null}
-                  name={row.customCategory}
-                  label={`Change category for ${row.description}`}
-                  disabled={!categories.data?.version}
-                  categories={categories.data?.categories ?? []}
-                  onCommit={async (categoryId) => {
-                    await api.categories.assign.mutate({
-                      accountId: row.accountId,
-                      transactionId: row.id,
-                      categoryId,
-                      expectedVersion: row.classification?.version ?? 0,
-                    });
-                    await Promise.all([
-                      client.invalidateQueries({ queryKey: ["endute-transactions"] }),
-                      client.invalidateQueries({ queryKey: ["purchase-categories"] }),
-                      client.invalidateQueries({ queryKey: ["transaction-ledger"] }),
-                    ]);
-                  }}
-                />
-                {row.categorisationStatus === "rule" && (
-                  <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.5 }}>
-                    Set by a rule
-                  </Typography>
-                )}
-              </Box>
-            ),
-          },
-          {
-            id: "amount",
-            label: "Amount",
-            minWidth: 130,
-            align: "right",
-            value: (row) => row.amount,
-            sortable: false,
-            render: (row) => (
-              <Box
-                sx={{
-                  fontWeight: 600,
-                  color: row.excluded
-                    ? "text.disabled"
-                    : Number(row.amount) > 0
-                      ? "success.main"
-                      : "text.primary",
-                }}
-              >
-                {Number(row.amount) > 0 ? "+" : ""}
-                {new Intl.NumberFormat("en-GB", {
-                  style: "currency",
-                  currency: row.currency,
-                }).format(Number(row.amount))}
-              </Box>
-            ),
-          },
-          {
-            id: "excluded",
-            label: "Exclude",
-            minWidth: 90,
-            align: "right",
-            value: (row) => (row.excluded ? "Excluded" : null),
-            sortable: false,
-            render: (row) => (
-              <Checkbox
-                size="small"
-                checked={row.excluded}
-                disabled={
-                  exclude.isPending &&
-                  exclude.variables.accountId === row.accountId &&
-                  exclude.variables.transactionId === row.id
-                }
-                slotProps={{ input: { "aria-label": `Exclude ${row.description} from analysis` } }}
-                onChange={(event) =>
-                  exclude.mutate({
-                    accountId: row.accountId,
-                    transactionId: row.id,
-                    excluded: event.target.checked,
-                  })
-                }
-              />
-            ),
-          },
-          {
-            id: "currency",
-            label: "Currency",
-            minWidth: 110,
-            value: (row) => row.currency,
-            sortable: false,
-          },
-          {
-            id: "actions",
-            label: "",
-            minWidth: 56,
-            align: "right",
-            value: () => null,
-            sortable: false,
-            render: (row) => (
-              <IconButton
-                size="small"
-                aria-label={`More actions for ${row.description}`}
-                aria-haspopup="menu"
-                onClick={(event) =>
-                  setMenu({
-                    anchor: event.currentTarget,
-                    target: {
-                      merchant: row.merchant,
-                      description: row.description,
-                      categoryId: row.classification?.categoryId ?? null,
-                    },
-                  })
-                }
-              >
-                <Icon name="more" size={18} />
-              </IconButton>
-            ),
-          },
-        ]}
-        pagination={{
-          pageIndex,
-          resetKey: selectedMonth,
-          knownPageCount: cursors.length,
-          hasNext: !transactions.isPlaceholderData && !!transactions.data?.nextCursor,
-          loading: transactions.isFetching,
-          onPage: setPageIndex,
-          onNext: () => {
-            if (!transactions.isPlaceholderData && transactions.data?.nextCursor) {
-              setCursors((previous) => [
-                ...previous.slice(0, pageIndex + 1),
-                transactions.data!.nextCursor!,
-              ]);
-              setPageIndex((previous) => previous + 1);
+    <Paper
+      variant="outlined"
+      component="section"
+      aria-label="Transactions"
+      sx={{ overflow: "hidden" }}
+    >
+      <Stack
+        direction="row"
+        useFlexGap
+        sx={{ p: { xs: 2, sm: 2.5 }, pb: 1.5, gap: 1, alignItems: "center", flexWrap: "wrap" }}
+      >
+        <Box sx={{ flex: 1, minWidth: 220 }}>
+          <Typography component="h2" sx={{ fontSize: 16, fontWeight: 600 }}>
+            Transactions
+          </Typography>
+          <Typography color="text.secondary" sx={{ fontSize: 12, mt: 0.5 }}>
+            Change a category, exclude a transfer or create a rule from any row. Excluded
+            transactions are left out of every chart and total.
+          </Typography>
+        </Box>
+        <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
+          <IconButton
+            size="small"
+            aria-label="Previous page"
+            disabled={!pages.index}
+            onClick={() => setPages((value) => ({ ...value, index: value.index - 1 }))}
+            sx={{ transform: "rotate(180deg)" }}
+          >
+            <Icon name="chevron" size={17} />
+          </IconButton>
+          <Typography component="output" sx={{ fontSize: 12, color: "text.secondary" }}>
+            Page {pages.index + 1}
+          </Typography>
+          <IconButton
+            size="small"
+            aria-label="Next page"
+            disabled={!next}
+            onClick={() =>
+              setPages((value) => ({
+                ...value,
+                cursors: [...value.cursors.slice(0, value.index + 1), next!],
+                index: value.index + 1,
+              }))
             }
-          },
-        }}
+          >
+            <Icon name="chevron" size={17} />
+          </IconButton>
+        </Stack>
+      </Stack>
+      <LinearProgress
+        aria-hidden
+        sx={{ height: 2, visibility: transactions.isFetching ? "visible" : "hidden" }}
       />
-      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
-        <MenuItem
-          disabled={menu?.target.merchant === "Unknown merchant"}
-          onClick={() => {
-            setRule({ ...menu!.target, description: null });
-            setMenu(null);
-          }}
-        >
-          Create rule for this merchant
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            setRule(menu!.target);
-            setMenu(null);
-          }}
-        >
-          Create rule for this merchant &amp; description
-        </MenuItem>
-      </Menu>
-      <RuleDialog
-        target={rule}
-        categories={categories.data?.categories ?? []}
-        onClose={() => setRule(null)}
-      />
-    </>
+      <Box
+        sx={{ p: { xs: 2, sm: 2.5 }, pt: 2 }}
+        aria-busy={transactions.isPending || transactions.isPlaceholderData}
+      >
+        {transactions.isError && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {errorMessage(transactions.error)}
+          </Alert>
+        )}
+        <TransactionList
+          transactions={rows}
+          onMerchant={onMerchant}
+          showAccount
+          empty={transactions.isPending ? "Loading transactions…" : "No transactions this month."}
+        />
+      </Box>
+    </Paper>
   );
 }

@@ -7,7 +7,8 @@ import { CategoryDot } from "./CategoryPill";
 import { merchantKey, type Analysis } from "./ledgerModel";
 import type { RecurringPayment } from "./recurring";
 import { formatDate } from "./highlights";
-import { EntryList, Muted } from "./parts";
+import { Muted } from "./parts";
+import { fromLedger, TransactionList } from "./TransactionList";
 
 export function MerchantDrawer({
   analysis,
@@ -129,12 +130,7 @@ export function MerchantDrawer({
         <Typography component="h3" sx={{ fontSize: 14, fontWeight: 600, mt: 3, mb: 1.5 }}>
           Transactions ({entries.length})
         </Typography>
-        <EntryList
-          entries={entries}
-          currency={analysis.currency}
-          names={analysis.names}
-          limit={60}
-        />
+        <TransactionList transactions={entries.map(fromLedger)} limit={60} showYear />
       </Box>
     </Drawer>
   );

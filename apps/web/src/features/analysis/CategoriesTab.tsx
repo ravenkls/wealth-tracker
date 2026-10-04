@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Box, ButtonBase, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { canonicalCategory, monthlyBudgets, type BudgetPlan } from "@wealth/domain";
@@ -7,17 +7,8 @@ import { colors, shortMonth } from "../../components/charts/chartData";
 import { categoryColour } from "./categoryColours";
 import { CategoryDot } from "./CategoryPill";
 import { categoryKey, merchantKey, type Analysis } from "./ledgerModel";
-import {
-  Delta,
-  EntryList,
-  grid,
-  MerchantLink,
-  Muted,
-  Section,
-  ShareBar,
-  Sparkline,
-  StatTile,
-} from "./parts";
+import { fromLedger, TransactionList } from "./TransactionList";
+import { Delta, grid, MerchantLink, Muted, Section, ShareBar, Sparkline, StatTile } from "./parts";
 
 export function CategoriesTab({
   analysis,
@@ -42,6 +33,10 @@ export function CategoriesTab({
     .filter((category) => category.total > 0 || category.spent > 0)
     .sort((a, b) => b.total - a.total);
   const category = rows.find((row) => row.id === selected) ?? rows[0];
+  // Pin the default so recategorising doesn't swap the panel to a new largest category.
+  useEffect(() => {
+    if (category && category.id !== selected) onSelect(category.id);
+  }, [category, selected, onSelect]);
   return (
     <>
       {!category ? (
@@ -52,7 +47,7 @@ export function CategoriesTab({
         </Box>
       ) : (
         <Box sx={grid({ lg: "minmax(260px,320px) minmax(0,1fr)" })}>
-          <Section title="Categories" subtitle="Total over the selected range" flush>
+          <Section title="Categories" subtitle="Total over the selected range" flush fill>
             <Stack
               component="ul"
 
@@ -62,8 +57,11 @@ export function CategoriesTab({
                 m: 0,
                 p: 1,
                 pt: 0,
-                maxHeight: { lg: 720 },
                 overflowY: "auto",
+                maxHeight: { xs: 420, lg: "none" },
+                // On wide screens the detail column sets the height and the list scrolls within it.
+                position: { lg: "absolute" },
+                inset: { lg: 0 },
               }}
             >
               {rows.map((row) => {
@@ -288,13 +286,7 @@ function CategoryDetail({
           title="This month"
           subtitle={`${monthEntries.length} ${monthEntries.length === 1 ? "payment" : "payments"}`}
         >
-          <EntryList
-            entries={monthEntries}
-            currency={analysis.currency}
-            names={analysis.names}
-            onMerchant={onMerchant}
-            limit={10}
-          />
+          <TransactionList transactions={monthEntries.map(fromLedger)} onMerchant={onMerchant} />
         </Section>
       </Box>
     </Stack>

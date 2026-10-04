@@ -5,10 +5,15 @@ import { merchantName } from "./rules";
 type LedgerSource = StoredEnduteTransaction & {
   excluded: boolean;
   customCategory: string | null;
-  classification: { categoryId: string | null } | null;
+  classification: { categoryId: string | null; version: number } | null;
+  categorisationStatus: string;
 };
 export interface LedgerEntry {
   key: string;
+  accountId: string;
+  id: string;
+  version: number;
+  status: string;
   date: string;
   amount: number;
   currency: string;
@@ -26,6 +31,10 @@ export function ledgerEntries(rows: readonly LedgerSource[]): LedgerEntry[] {
       .filter((row) => !row.sandbox && !row.excluded)
       .map((row) => ({
         key: `${row.accountId}#${row.id}`,
+        accountId: row.accountId,
+        id: row.id,
+        version: row.classification?.version ?? 0,
+        status: row.categorisationStatus,
         date: row.booking_date,
         amount: new Decimal(row.amount).times(100).toNumber(),
         currency: row.currency,

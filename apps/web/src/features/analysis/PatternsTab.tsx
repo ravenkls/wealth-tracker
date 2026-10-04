@@ -4,7 +4,8 @@ import { TimelineChart } from "../../components/charts/TimelineChart";
 import { colors } from "../../components/charts/chartData";
 import { compactCurrencyMoney } from "../../components/charts/ChartFrame";
 import { spendingPatterns, type Analysis, type unusualTransactions } from "./ledgerModel";
-import { EntryList, grid, Muted, Section } from "./parts";
+import { grid, Muted, Section } from "./parts";
+import { fromLedger, TransactionList } from "./TransactionList";
 
 export function PatternsTab({
   analysis,
@@ -92,10 +93,8 @@ export function PatternsTab({
           subtitle="This month's payments well above what's normal for their category"
         >
           {unusual.length ? (
-            <EntryList
-              entries={unusual.map((item) => item.entry)}
-              currency={analysis.currency}
-              names={analysis.names}
+            <TransactionList
+              transactions={unusual.map((item) => fromLedger(item.entry))}
               onMerchant={onMerchant}
               limit={10}
               aside={(entry) => (

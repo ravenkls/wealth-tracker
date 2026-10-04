@@ -308,7 +308,7 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
       </Paper>
 
       {tab === "transactions" ? (
-        <TransactionsTab data={data} selectedMonth={selectedMonth} />
+        <TransactionsTab selectedMonth={selectedMonth} onMerchant={setMerchant} />
       ) : !analysis ? (
         <Paper variant="outlined" sx={{ p: 3 }} aria-busy={loading}>
           <Typography component="output" sx={{ fontSize: 13, color: "text.secondary" }}>
@@ -393,14 +393,16 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
               onMerchant={setMerchant}
             />
           )}
-          <MerchantDrawer
-            analysis={analysis}
-            recurring={recurring}
-            name={merchant}
-            money={money}
-            onClose={() => setMerchant(null)}
-          />
         </Box>
+      )}
+      {analysis && (
+        <MerchantDrawer
+          analysis={analysis}
+          recurring={recurring}
+          name={merchant}
+          money={money}
+          onClose={() => setMerchant(null)}
+        />
       )}
     </>
   );

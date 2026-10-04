@@ -15,7 +15,11 @@ import { highlights } from "./highlights";
 let sequence = 0;
 function entry(date: string, amount: number, patch: Partial<LedgerEntry> = {}): LedgerEntry {
   return {
-    key: `k${sequence++}`,
+    key: `k${sequence}`,
+    accountId: "account",
+    id: `id${sequence++}`,
+    version: 0,
+    status: "complete",
     date,
     amount,
     currency: "GBP",

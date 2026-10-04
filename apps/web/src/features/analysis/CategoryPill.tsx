@@ -37,6 +37,7 @@ export function CategoryPill({
   categories,
   disabled,
   onCommit,
+  compact = false,
 }: {
   readonly id: string | null;
   readonly name: string | null;
@@ -44,6 +45,7 @@ export function CategoryPill({
   readonly categories: { id: string; name: string }[];
   readonly disabled: boolean;
   readonly onCommit: (categoryId: string | null) => Promise<void>;
+  readonly compact?: boolean;
 }) {
   const searchInput = useRef<HTMLInputElement | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -101,7 +103,10 @@ export function CategoryPill({
         aria-expanded={!!anchor}
         variant="outlined"
         size="small"
-        sx={categoryPillStyles(id)}
+        sx={{
+          ...categoryPillStyles(id),
+          ...(compact ? { height: 24, fontSize: 12, "& .MuiChip-label": { px: 0.75 } } : {}),
+        }}
       />
       <Popover
         open={!!anchor}

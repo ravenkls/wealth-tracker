@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
 import { Box, Button, Paper, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { chartMoney } from "../../components/charts/ChartFrame";
-import { CategoryDot } from "./CategoryPill";
-import { categoryKey, type LedgerEntry } from "./ledgerModel";
-import { formatDate } from "./highlights";
 
 export function Sparkline({
   values,
@@ -136,19 +132,25 @@ export function Section({
   action,
   children,
   flush = false,
+  fill = false,
 }: {
   readonly title: string;
   readonly subtitle?: string;
   readonly action?: ReactNode;
   readonly children: ReactNode;
   readonly flush?: boolean;
+  readonly fill?: boolean;
 }) {
   return (
     <Paper
       variant="outlined"
       component="section"
       aria-label={title}
-      sx={{ minWidth: 0, overflow: "hidden" }}
+      sx={{
+        minWidth: 0,
+        overflow: "hidden",
+        ...(fill ? { display: "flex", flexDirection: "column" } : {}),
+      }}
     >
       <Stack
         direction="row"
@@ -175,7 +177,14 @@ export function Section({
         </Box>
         {action}
       </Stack>
-      <Box sx={flush ? {} : { p: { xs: 2, sm: 2.5 } }}>{children}</Box>
+      <Box
+        sx={{
+          ...(flush ? {} : { p: { xs: 2, sm: 2.5 } }),
+          ...(fill ? { flex: 1, minHeight: 0, position: "relative" } : {}),
+        }}
+      >
+        {children}
+      </Box>
     </Paper>
   );
 }
@@ -196,79 +205,6 @@ export function Muted({ children }: { readonly children: ReactNode }) {
     <Typography color="text.secondary" sx={{ fontSize: 13 }}>
       {children}
     </Typography>
-  );
-}
-
-export function EntryList({
-  entries,
-  currency,
-  names,
-  limit = 8,
-  onMerchant,
-  aside,
-}: {
-  readonly entries: readonly LedgerEntry[];
-  readonly currency: string;
-  readonly names: ReadonlyMap<string, string>;
-  readonly limit?: number;
-  readonly onMerchant?: (key: string) => void;
-  readonly aside?: (entry: LedgerEntry) => ReactNode;
-}) {
-  if (!entries.length) return <Muted>No transactions.</Muted>;
-  return (
-    <Stack component="ul" sx={{ listStyle: "none", m: 0, p: 0 }}>
-      {entries.slice(0, limit).map((entry) => (
-        <Stack
-          component="li"
-          key={entry.key}
-          direction="row"
-          sx={{
-            py: 1.1,
-            gap: 1.5,
-            alignItems: "center",
-            borderTop: 1,
-            borderColor: "divider",
-            "&:first-of-type": { borderTop: 0, pt: 0 },
-          }}
-        >
-          <Typography sx={{ fontSize: 12, color: "text.secondary", width: 48, flexShrink: 0 }}>
-            {formatDate(entry.date)}
-          </Typography>
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            {onMerchant ? (
-              <MerchantLink name={entry.merchant} onClick={() => onMerchant(entry.merchant)} />
-            ) : (
-              <Typography noWrap sx={{ fontSize: 13 }}>
-                {entry.merchant}
-              </Typography>
-            )}
-            <Stack direction="row" sx={{ alignItems: "center", minWidth: 0 }}>
-              <CategoryDot id={categoryKey(entry)} />
-              <Typography
-                noWrap
-                color="text.secondary"
-                sx={{ fontSize: 11 }}
-                title={entry.description}
-              >
-                {names.get(categoryKey(entry)) ?? "Uncategorised"} · {entry.description}
-              </Typography>
-            </Stack>
-          </Box>
-          {aside?.(entry)}
-          <Typography
-            sx={{
-              fontSize: 13,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              color: entry.amount > 0 ? "success.main" : "text.primary",
-            }}
-          >
-            {entry.amount > 0 ? "+" : ""}
-            {chartMoney(entry.amount, currency)}
-          </Typography>
-        </Stack>
-      ))}
-    </Stack>
   );
 }
 

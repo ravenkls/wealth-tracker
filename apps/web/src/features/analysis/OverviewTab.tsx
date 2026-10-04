@@ -16,7 +16,8 @@ import { CategoryDot } from "./CategoryPill";
 import { change, type Analysis } from "./ledgerModel";
 import type { RecurringPayment } from "./recurring";
 import { formatDate, type Highlight } from "./highlights";
-import { Delta, EntryList, grid, MerchantLink, Muted, Section, ShareBar, StatTile } from "./parts";
+import { fromLedger, TransactionList } from "./TransactionList";
+import { Delta, grid, MerchantLink, Muted, Section, ShareBar, StatTile } from "./parts";
 
 const tones = {
   good: { glyph: "✓", colour: "success.main" },
@@ -236,12 +237,11 @@ export function OverviewTab({
           </Section>
         ) : (
           <Section title="Largest payments" subtitle="Biggest outgoings this month">
-            <EntryList
-              entries={[...analysis.monthEntries]
+            <TransactionList
+              transactions={analysis.monthEntries
                 .filter((entry) => entry.amount < 0)
-                .sort((a, b) => a.amount - b.amount)}
-              currency={analysis.currency}
-              names={analysis.names}
+                .sort((a, b) => a.amount - b.amount)
+                .map(fromLedger)}
               onMerchant={onMerchant}
               limit={6}
             />

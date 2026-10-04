@@ -20,12 +20,14 @@ function row(
     excluded,
     counterparty: "Counterparty",
     enrichment: { merchant_name: "Shop" },
-    classification: categoryId ? { categoryId } : null,
+    classification: categoryId ? { categoryId, version: 2 } : null,
     customCategory: categoryId ? "Food" : null,
+    categorisationStatus: categoryId ? "manual" : "pending",
   } as StoredEnduteTransaction & {
     excluded: boolean;
     customCategory: string | null;
-    classification: { categoryId: string | null } | null;
+    classification: { categoryId: string | null; version: number } | null;
+    categorisationStatus: string;
   };
 }
 it("drops sandbox and excluded rows and converts amounts to signed hundredths", () => {
@@ -39,6 +41,10 @@ it("drops sandbox and excluded rows and converts amounts to signed hundredths", 
   expect(entries).toEqual([
     {
       key: "account#id-0.10",
+      accountId: "account",
+      id: "id-0.10",
+      version: 2,
+      status: "manual",
       date: "2026-09-10",
       amount: -10,
       currency: "GBP",

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { liveBudgetAt, liveBudgetTotals, monthPace, trackBudget } from "./budget-tracking";
+import { liveBudget, liveBudgetAt, monthPace, trackBudget } from "./budget-tracking";
 import { pence } from "./money";
 import { month } from "./month";
 import type { BudgetPlan } from "./models";
@@ -84,21 +84,32 @@ it("marks overspending and has no score without links", () => {
     }).score,
   ).toBeNull();
 });
-it("totals the live budget without excluded categories or their linked spending", () => {
-  expect(
-    liveBudgetTotals({
-      plan: { ...plan, liveBudgetExclusions: ["transport"] },
-      links: [
-        { id: "groceries", budgetCategory: "Food" },
-        { id: "trains", budgetCategory: "TRANSPORT" },
-      ],
-      spend: new Map([
-        ["groceries", 12000],
-        ["trains", 9000],
-        ["uncategorised", 500],
-      ]),
-    }),
-  ).toEqual({ budget: 45000, spent: 12500 });
+it("totals the live budget without excluded budget or unlinked categories", () => {
+  const result = liveBudget({
+    plan: { ...plan, liveBudgetExclusions: ["transport"], liveBudgetExcludedCategoryIds: ["debt"] },
+    categories: [
+      { id: "groceries", name: "Groceries", budgetCategory: "Food" },
+      { id: "trains", name: "Trains", budgetCategory: "TRANSPORT" },
+      { id: "debt", name: "Debt", budgetCategory: null },
+      { id: "fun", name: "Fun", budgetCategory: "Removed" },
+    ],
+    spend: new Map([
+      ["groceries", 12000],
+      ["trains", 9000],
+      ["debt", 20000],
+      ["fun", 700],
+      ["uncategorised", 500],
+    ]),
+  });
+  expect(result).toMatchObject({ budget: 45000, spent: 13200, other: 500 });
+  expect(result.budgetRows.find((row) => row.id === "Transport")).toMatchObject({
+    spent: 9000,
+    counted: false,
+  });
+  expect(result.spendingRows.map((row) => [row.id, row.spent, row.counted])).toEqual([
+    ["debt", 20000, false],
+    ["fun", 700, true],
+  ]);
 });
 it("accrues the live budget and resumes once a deficit is caught up or the month ends", () => {
   const totals = { budget: pence(1000), spent: pence(300) };

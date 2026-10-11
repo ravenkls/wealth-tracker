@@ -32,6 +32,7 @@ export interface BudgetPlan {
   forecastAssumptions?: ForecastAssumptions;
   emergencyAccountIds?: string[];
   liveBudgetExclusions?: string[];
+  liveBudgetExcludedCategoryIds?: string[];
   salary: Pence;
   payFrequency: PayFrequency;
   sideIncome: Pence;

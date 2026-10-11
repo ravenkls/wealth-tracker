@@ -154,6 +154,7 @@ export function BudgetPage({ data }: { readonly data: AppData }) {
       forecastAssumptions: readForecastDraft(forecastSettings),
       emergencyAccountIds,
       liveBudgetExclusions: plan?.liveBudgetExclusions ?? [],
+      liveBudgetExcludedCategoryIds: plan?.liveBudgetExcludedCategoryIds ?? [],
       salary: positiveMoney(salary, "Take-home pay"),
       payFrequency: frequency,
       sideIncome: positiveMoney(sideIncome, "Side income"),

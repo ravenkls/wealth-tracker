@@ -66,6 +66,7 @@ export const budgetInput = z.object({
     forecastAssumptions: forecastAssumptions.default({ ...defaultForecastAssumptions }),
     emergencyAccountIds: z.array(z.uuid()).max(200).default([]),
     liveBudgetExclusions: z.array(z.string().trim().min(1).max(80)).max(200).default([]),
+    liveBudgetExcludedCategoryIds: z.array(z.uuid()).max(50).default([]),
     salary: nonnegative,
     payFrequency: z.enum(payFrequencies),
     sideIncome: nonnegative,

@@ -3,13 +3,14 @@ import { Link } from "react-router";
 import { useMutation } from "@tanstack/react-query";
 import { Alert, Box, Button, Chip, Paper, Skeleton, Stack, Typography } from "@mui/material";
 import {
-  canonicalCategory,
   formatGbp,
+  liveBudget,
   liveBudgetAt,
-  liveBudgetTotals,
   monthlyBudgets,
   pence,
   type BudgetPlan,
+  type LiveBudget,
+  type LiveBudgetRow,
   type LiveBudgetTotals,
 } from "@wealth/domain";
 import { PageHeading } from "../../components/PageHeading";
@@ -40,15 +41,16 @@ export function LiveBudgetPage({ data }: { readonly data: AppData }) {
         totals.set(categoryKey(entry), (totals.get(categoryKey(entry)) ?? 0) - entry.amount);
     return totals;
   }, [ledger.entries]);
-  const budgets = plan ? [...monthlyBudgets(plan)] : [];
-  const ready = ledger.ready && !!categories.data;
-  const totals =
-    plan && ready ? liveBudgetTotals({ plan, links: categories.data!.categories, spend }) : null;
+  const budgeted = !!plan && monthlyBudgets(plan).size > 0;
+  const live =
+    plan && ledger.ready && categories.data
+      ? liveBudget({ plan, categories: categories.data.categories, spend })
+      : null;
   const error = ledger.query.error ?? categories.error;
   return (
     <>
       <PageHeading title="Live budget" />
-      {!plan || !budgets.length ? (
+      {!budgeted ? (
         <Alert
           severity="info"
           action={
@@ -63,17 +65,19 @@ export function LiveBudgetPage({ data }: { readonly data: AppData }) {
         <Stack sx={{ gap: 3 }}>
           {error ? (
             <Alert severity="error">{errorMessage(error)}</Alert>
-          ) : totals ? (
-            <LiveCounter
-              key={month}
-              totals={totals}
-              month={month}
-              onMonthEnd={() => setMonth(currentMonth())}
-            />
+          ) : live ? (
+            <>
+              <LiveCounter
+                key={month}
+                totals={live}
+                month={month}
+                onMonthEnd={() => setMonth(currentMonth())}
+              />
+              <Exclusions data={data} plan={plan!} live={live} />
+            </>
           ) : (
             <Skeleton variant="rounded" height={260} />
           )}
-          <Exclusions data={data} plan={plan} budgets={budgets} />
         </Stack>
       )}
     </>
@@ -177,31 +181,41 @@ function LiveCounter({
 function Exclusions({
   data,
   plan,
-  budgets,
+  live,
 }: {
   readonly data: AppData;
   readonly plan: BudgetPlan;
-  readonly budgets: readonly [string, number][];
+  readonly live: LiveBudget;
 }) {
   const refresh = useRefresh();
-  const names = budgets.map(([name]) => name);
-  const excluded = new Set(
-    (plan.liveBudgetExclusions ?? []).map((name) => canonicalCategory(name, names)),
-  );
   const save = useMutation({
-    mutationFn: (liveBudgetExclusions: string[]) =>
+    mutationFn: (
+      patch: Pick<BudgetPlan, "liveBudgetExclusions" | "liveBudgetExcludedCategoryIds">,
+    ) =>
       api.budget.save.mutate({
-        plan: { ...plan, liveBudgetExclusions },
+        plan: { ...plan, ...patch },
         expectedVersion: data.budget!.version,
       }),
     onSuccess: () => refresh(),
   });
-  const toggle = (name: string) =>
-    save.mutate(
-      excluded.has(name)
-        ? names.filter((other) => excluded.has(other) && other !== name)
-        : [...names.filter((other) => excluded.has(other)), name],
-    );
+  const excludedAfter = (rows: readonly LiveBudgetRow[], toggled: string) =>
+    rows.filter((row) => row.counted === (row.id === toggled)).map((row) => row.id);
+  const chips = (rows: readonly LiveBudgetRow[], onToggle: (id: string) => void) => (
+    <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
+      {rows.map((row) => (
+        <Chip
+          key={row.id}
+          label={`${row.name} · ${formatGbp(row.spent)}${row.budget === null ? "" : ` of ${formatGbp(row.budget)}`}`}
+          color={row.counted ? "primary" : "default"}
+          variant={row.counted ? "filled" : "outlined"}
+          aria-pressed={row.counted}
+          disabled={save.isPending}
+          onClick={() => onToggle(row.id)}
+          sx={row.counted ? undefined : { textDecoration: "line-through" }}
+        />
+      ))}
+    </Stack>
+  );
   return (
     <Paper
       variant="outlined"
@@ -213,26 +227,28 @@ function Exclusions({
         Counted categories
       </Typography>
       <Typography color="text.secondary" sx={{ fontSize: 12, mt: 0.5, mb: 2 }}>
-        Exclude fixed costs like bills. Their budget and any spending in linked categories are left
-        out. Other spending, including uncategorised, still counts.
+        Exclude fixed costs like bills. An excluded budget category drops its budget and the
+        spending in categories linked to it.
       </Typography>
-      <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
-        {budgets.map(([name, amount]) => {
-          const counted = !excluded.has(name);
-          return (
-            <Chip
-              key={name}
-              label={`${name} · ${formatGbp(pence(amount))}`}
-              color={counted ? "primary" : "default"}
-              variant={counted ? "filled" : "outlined"}
-              aria-pressed={counted}
-              disabled={save.isPending}
-              onClick={() => toggle(name)}
-              sx={counted ? undefined : { textDecoration: "line-through" }}
-            />
-          );
-        })}
-      </Stack>
+      {chips(live.budgetRows, (id) =>
+        save.mutate({ liveBudgetExclusions: excludedAfter(live.budgetRows, id) }),
+      )}
+      {!!live.spendingRows.length && (
+        <>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mt: 3 }}>Outside your budget</Typography>
+          <Typography color="text.secondary" sx={{ fontSize: 12, mt: 0.5, mb: 1.5 }}>
+            Spending in categories not linked to a budget category, such as debt repayments.
+          </Typography>
+          {chips(live.spendingRows, (id) =>
+            save.mutate({ liveBudgetExcludedCategoryIds: excludedAfter(live.spendingRows, id) }),
+          )}
+        </>
+      )}
+      {live.other > 0 && (
+        <Typography color="text.secondary" sx={{ fontSize: 12, mt: 2 }}>
+          Plus {formatGbp(live.other)} uncategorised spending, which always counts.
+        </Typography>
+      )}
       {save.error && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {errorMessage(save.error)}

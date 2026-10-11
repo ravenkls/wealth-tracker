@@ -48,11 +48,13 @@ export {
   trackBudget,
   monthPace,
   monthlyBudgets,
-  liveBudgetTotals,
+  liveBudget,
   liveBudgetAt,
 } from "./budget-tracking";
 export type {
   BudgetTracking,
+  LiveBudget,
+  LiveBudgetRow,
   LiveBudgetTotals,
   TrackedCategory,
   TrackingStatus,

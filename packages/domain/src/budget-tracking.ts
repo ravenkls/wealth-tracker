@@ -89,27 +89,62 @@ export interface LiveBudgetTotals {
   budget: Pence;
   spent: Pence;
 }
-// Excluded budget categories drop both their monthly budget and their linked spending.
-export function liveBudgetTotals(input: {
+export interface LiveBudgetRow {
+  id: string;
+  name: string;
+  budget: Pence | null;
+  spent: Pence;
+  counted: boolean;
+}
+export interface LiveBudget extends LiveBudgetTotals {
+  budgetRows: LiveBudgetRow[];
+  spendingRows: LiveBudgetRow[];
+  // Uncategorised or deleted-category spending, which always counts.
+  other: Pence;
+}
+// Excluding a budget category drops its budget and linked spending; unlinked categories drop spending.
+export function liveBudget(input: {
   plan: BudgetPlan;
-  links: readonly { id: string; budgetCategory?: string | null }[];
+  categories: readonly { id: string; name: string; budgetCategory?: string | null }[];
   spend: ReadonlyMap<string, number>;
-}): LiveBudgetTotals {
+}): LiveBudget {
   const budgets = monthlyBudgets(input.plan);
   const names = [...budgets.keys()];
-  const excluded = new Set(
+  const excludedBudgets = new Set(
     (input.plan.liveBudgetExclusions ?? []).map((name) => canonicalCategory(name, names)),
   );
-  const excludedIds = new Set(
-    input.links
-      .filter((link) => excluded.has(canonicalCategory(link.budgetCategory, names)))
-      .map((link) => link.id),
-  );
-  const sum = (entries: Iterable<[string, number]>) =>
-    pence(Math.round([...entries].reduce((total, [, value]) => total + value, 0)));
+  const excludedIds = new Set(input.plan.liveBudgetExcludedCategoryIds ?? []);
+  const spentOf = (ids: readonly string[]) =>
+    pence(Math.round(ids.reduce((sum, id) => sum + (input.spend.get(id) ?? 0), 0)));
+  const linkOf = (category: (typeof input.categories)[number]) => {
+    const name = canonicalCategory(category.budgetCategory, names);
+    return name && budgets.has(name) ? name : null;
+  };
+  const budgetRows = names.map((name): LiveBudgetRow => ({
+    id: name,
+    name,
+    budget: pence(budgets.get(name)!),
+    spent: spentOf(input.categories.filter((c) => linkOf(c) === name).map((c) => c.id)),
+    counted: !excludedBudgets.has(name),
+  }));
+  const spendingRows = input.categories
+    .filter((category) => !linkOf(category))
+    .map((category): LiveBudgetRow => ({
+      id: category.id,
+      name: category.name,
+      budget: null,
+      spent: spentOf([category.id]),
+      counted: !excludedIds.has(category.id),
+    }));
+  const known = new Set(input.categories.map((category) => category.id));
+  const other = spentOf([...input.spend.keys()].filter((id) => !known.has(id)));
+  const counted = [...budgetRows, ...spendingRows].filter((row) => row.counted);
   return {
-    budget: sum([...budgets].filter(([name]) => !excluded.has(name))),
-    spent: sum([...input.spend].filter(([id]) => !excludedIds.has(id))),
+    budget: pence(counted.reduce((sum, row) => sum + (row.budget ?? 0), 0)),
+    spent: pence(counted.reduce((sum, row) => sum + row.spent, Number(other))),
+    budgetRows,
+    spendingRows,
+    other,
   };
 }
 // Budget accrues evenly between `start` and `end`; a deficit resumes once accrual catches up.

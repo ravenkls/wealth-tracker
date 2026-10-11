@@ -44,8 +44,19 @@ export type {
 export { calculateBudget, monthlyLine } from "./budget";
 export { netWorthAssets } from "./overview";
 export type { NetWorthAsset, OverviewSettings } from "./overview";
-export { trackBudget, monthPace, monthlyBudgets } from "./budget-tracking";
-export type { BudgetTracking, TrackedCategory, TrackingStatus } from "./budget-tracking";
+export {
+  trackBudget,
+  monthPace,
+  monthlyBudgets,
+  liveBudgetTotals,
+  liveBudgetAt,
+} from "./budget-tracking";
+export type {
+  BudgetTracking,
+  LiveBudgetTotals,
+  TrackedCategory,
+  TrackingStatus,
+} from "./budget-tracking";
 export type { BudgetDestination } from "./budget";
 export { inferSavings } from "./savings";
 export type { SavingsMetrics, SavingsResult } from "./savings";

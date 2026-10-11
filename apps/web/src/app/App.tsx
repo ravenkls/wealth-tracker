@@ -15,6 +15,11 @@ const BudgetPage = lazy(() =>
 const AnalysisPage = lazy(() =>
   import("../features/analysis/AnalysisPage").then((module) => ({ default: module.AnalysisPage })),
 );
+const LiveBudgetPage = lazy(() =>
+  import("../features/live-budget/LiveBudgetPage").then((module) => ({
+    default: module.LiveBudgetPage,
+  })),
+);
 const HistoryPage = lazy(() =>
   import("../features/history/HistoryPage").then((module) => ({ default: module.HistoryPage })),
 );
@@ -168,6 +173,9 @@ function LivePages({
   readonly onClose: () => void;
 }) {
   useHistoryRefresh(data);
+  const enduteConnected = data.bankConnections.some(
+    (connection) => connection.provider === "endute",
+  );
   return (
     <>
       <Routes>
@@ -176,13 +184,15 @@ function LivePages({
         <Route path="/budget" element={<BudgetPage data={data} />} />
         <Route path="/history" element={<HistoryPage data={data} />} />
         <Route
+          path="/live"
+          element={
+            enduteConnected ? <LiveBudgetPage data={data} /> : <Navigate to="/accounts" replace />
+          }
+        />
+        <Route
           path="/analysis"
           element={
-            data.bankConnections.some((connection) => connection.provider === "endute") ? (
-              <AnalysisPage data={data} />
-            ) : (
-              <Navigate to="/accounts" replace />
-            )
+            enduteConnected ? <AnalysisPage data={data} /> : <Navigate to="/accounts" replace />
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

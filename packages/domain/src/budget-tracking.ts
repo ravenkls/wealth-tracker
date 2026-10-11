@@ -85,3 +85,37 @@ export function trackBudget(input: {
     ),
   };
 }
+export interface LiveBudgetTotals {
+  budget: Pence;
+  spent: Pence;
+}
+// Excluded budget categories drop both their monthly budget and their linked spending.
+export function liveBudgetTotals(input: {
+  plan: BudgetPlan;
+  links: readonly { id: string; budgetCategory?: string | null }[];
+  spend: ReadonlyMap<string, number>;
+}): LiveBudgetTotals {
+  const budgets = monthlyBudgets(input.plan);
+  const names = [...budgets.keys()];
+  const excluded = new Set(
+    (input.plan.liveBudgetExclusions ?? []).map((name) => canonicalCategory(name, names)),
+  );
+  const excludedIds = new Set(
+    input.links
+      .filter((link) => excluded.has(canonicalCategory(link.budgetCategory, names)))
+      .map((link) => link.id),
+  );
+  const sum = (entries: Iterable<[string, number]>) =>
+    pence(Math.round([...entries].reduce((total, [, value]) => total + value, 0)));
+  return {
+    budget: sum([...budgets].filter(([name]) => !excluded.has(name))),
+    spent: sum([...input.spend].filter(([id]) => !excludedIds.has(id))),
+  };
+}
+// Budget accrues evenly between `start` and `end`; a deficit resumes once accrual catches up.
+export function liveBudgetAt(totals: LiveBudgetTotals, start: number, end: number, now: number) {
+  const available = totals.budget * ((now - start) / (end - start)) - totals.spent;
+  if (available >= 0) return { available, resumesAt: null };
+  const caughtUp = totals.budget ? start + (totals.spent / totals.budget) * (end - start) : end;
+  return { available, resumesAt: Math.min(caughtUp, end) };
+}

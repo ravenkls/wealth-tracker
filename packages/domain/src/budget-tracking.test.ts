@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { monthPace, trackBudget } from "./budget-tracking";
+import { liveBudgetAt, liveBudgetTotals, monthPace, trackBudget } from "./budget-tracking";
 import { pence } from "./money";
 import { month } from "./month";
 import type { BudgetPlan } from "./models";
@@ -83,4 +83,27 @@ it("marks overspending and has no score without links", () => {
       spend: new Map(),
     }).score,
   ).toBeNull();
+});
+it("totals the live budget without excluded categories or their linked spending", () => {
+  expect(
+    liveBudgetTotals({
+      plan: { ...plan, liveBudgetExclusions: ["transport"] },
+      links: [
+        { id: "groceries", budgetCategory: "Food" },
+        { id: "trains", budgetCategory: "TRANSPORT" },
+      ],
+      spend: new Map([
+        ["groceries", 12000],
+        ["trains", 9000],
+        ["uncategorised", 500],
+      ]),
+    }),
+  ).toEqual({ budget: 45000, spent: 12500 });
+});
+it("accrues the live budget and resumes once a deficit is caught up or the month ends", () => {
+  const totals = { budget: pence(1000), spent: pence(300) };
+  expect(liveBudgetAt(totals, 0, 100, 50)).toEqual({ available: 200, resumesAt: null });
+  expect(liveBudgetAt(totals, 0, 100, 10)).toEqual({ available: -200, resumesAt: 30 });
+  expect(liveBudgetAt({ ...totals, spent: pence(2000) }, 0, 100, 10).resumesAt).toBe(100);
+  expect(liveBudgetAt({ budget: pence(0), spent: pence(1) }, 0, 100, 10).resumesAt).toBe(100);
 });

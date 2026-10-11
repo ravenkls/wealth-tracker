@@ -19,9 +19,11 @@ const navigation = [
   ["overview", "Overview"],
   ["accounts", "Accounts"],
   ["budget", "Budget"],
+  ["live", "Live budget"],
   ["history", "History"],
   ["analysis", "Analysis"],
 ] as const;
+const needsEndute = (icon: string) => icon === "analysis" || icon === "live";
 
 interface AppShellProps {
   readonly children: ReactNode;
@@ -91,15 +93,13 @@ export function AppShell({ children, preview, onRecord, user, onLogout }: AppShe
               component={Link}
               to={icon === "overview" ? "/" : `/${icon}`}
               selected={location.pathname === (icon === "overview" ? "/" : `/${icon}`)}
-              disabled={
-                (preview && icon !== "overview") || (icon === "analysis" && !analysisEnabled)
-              }
+              disabled={(preview && icon !== "overview") || (needsEndute(icon) && !analysisEnabled)}
               aria-current={
                 location.pathname === (icon === "overview" ? "/" : `/${icon}`) ? "page" : undefined
               }
               aria-label={label}
               title={
-                icon === "analysis" && !analysisEnabled ? "Connect Endute to use Analysis" : label
+                needsEndute(icon) && !analysisEnabled ? `Connect Endute to use ${label}` : label
               }
               sx={{ justifyContent: { xs: "center", md: "start" }, px: { xs: 1, md: 1.75 } }}
             >

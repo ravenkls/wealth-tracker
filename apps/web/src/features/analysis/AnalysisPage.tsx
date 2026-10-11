@@ -27,6 +27,7 @@ import { errorMessage, type AppData } from "../../lib/data";
 import { BudgetTracking } from "./BudgetTracking";
 import { CategoriesPanel, useCategories } from "./CategoriesPanel";
 import { CategoriesTab } from "./CategoriesTab";
+import { ExportTransactions } from "./ExportTransactions";
 import { highlights as buildHighlights } from "./highlights";
 import {
   analysisWindow,
@@ -154,15 +155,22 @@ export function AnalysisPage({ data }: { readonly data: AppData }) {
   return (
     <>
       <PageHeading title="Analysis">
-        <Button
-          variant="outlined"
-          startIcon={<Icon name="refresh" />}
-          loading={refresh.isPending}
-          disabled={waiting || status.data?.syncing}
-          onClick={() => refresh.mutate()}
-        >
-          Refresh transactions
-        </Button>
+        <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: "wrap" }}>
+          <ExportTransactions
+            defaultFrom={`${period.months[0]}-01`}
+            defaultTo={period.asOf}
+            today={today}
+          />
+          <Button
+            variant="outlined"
+            startIcon={<Icon name="refresh" />}
+            loading={refresh.isPending}
+            disabled={waiting || status.data?.syncing}
+            onClick={() => refresh.mutate()}
+          >
+            Refresh transactions
+          </Button>
+        </Stack>
       </PageHeading>
       <Stack spacing={2} sx={{ mb: 2 }}>
         {(status.data?.syncing || status.data?.backfilling) && (

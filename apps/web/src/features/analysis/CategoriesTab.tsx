@@ -4,9 +4,10 @@ import { alpha } from "@mui/material/styles";
 import { canonicalCategory, monthlyBudgets, type BudgetPlan } from "@wealth/domain";
 import { TimelineChart } from "../../components/charts/TimelineChart";
 import { colors, shortMonth } from "../../components/charts/chartData";
+import { AddToBudget } from "./AddToBudget";
 import { categoryColour } from "./categoryColours";
 import { CategoryDot } from "./CategoryPill";
-import { categoryKey, merchantKey, type Analysis } from "./ledgerModel";
+import { categoryKey, merchantKey, UNCATEGORISED, type Analysis } from "./ledgerModel";
 import { fromLedger, TransactionList } from "./TransactionList";
 import { Delta, grid, MerchantLink, Muted, Section, ShareBar, Sparkline, StatTile } from "./parts";
 
@@ -137,10 +138,11 @@ function CategoryDetail({
   readonly links: readonly { id: string; budgetCategory: string | null }[];
 }) {
   const budgets = plan ? monthlyBudgets(plan) : new Map<string, number>();
-  const budgetName = canonicalCategory(
+  const linkedName = canonicalCategory(
     links.find((link) => link.id === category.id)?.budgetCategory,
     [...budgets.keys()],
   );
+  const budgetName = linkedName && budgets.has(linkedName) ? linkedName : null;
   const sharing = budgetName
     ? links.filter(
         (link) => canonicalCategory(link.budgetCategory, [...budgets.keys()]) === budgetName,
@@ -229,6 +231,11 @@ function CategoryDetail({
             : budgetName
               ? `Shares the ${budgetName} budget with ${sharing.length - 1} other ${sharing.length === 2 ? "category" : "categories"}`
               : "Link this category to a budget to see your limit here"
+        }
+        action={
+          plan && !budgetName && category.id !== UNCATEGORISED ? (
+            <AddToBudget analysis={analysis} category={category} />
+          ) : undefined
         }
       >
         <TimelineChart

@@ -360,3 +360,15 @@ export function unusualTransactions(analysis: Analysis) {
     .map((entry) => ({ entry, typical: limits.get(categoryKey(entry))!.middle }))
     .sort((a, b) => a.entry.amount - b.entry.amount);
 }
+
+// Average monthly spend over the most recent `count` months that count towards averages.
+export function recentMonthlyAverage(
+  analysis: Analysis,
+  category: Analysis["categories"][number],
+  count: number,
+) {
+  const values = category.series
+    .filter((_, index) => analysis.months[index]!.averaged)
+    .slice(-count);
+  return { months: values.length, average: average(values) };
+}

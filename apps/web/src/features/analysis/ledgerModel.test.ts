@@ -4,6 +4,7 @@ import {
   buildAnalysis,
   fetchRange,
   monthSpan,
+  recentMonthlyAverage,
   shiftMonth,
   spendingPatterns,
   unusualTransactions,
@@ -207,4 +208,21 @@ describe("highlights", () => {
       "You kept 60% of what came in",
     ]);
   });
+});
+
+it("averages a category over its most recent finished months", () => {
+  const analysis = buildAnalysis(
+    [
+      entry("2026-06-10", -9000),
+      entry("2026-07-10", -1000),
+      entry("2026-08-10", -2000),
+      entry("2026-09-10", -6000),
+      entry("2026-10-05", -50000),
+    ],
+    "GBP",
+    analysisWindow("2026-10", 6, "2026-10-11"),
+  );
+  const food = analysis.categories.find((category) => category.id === "food")!;
+  expect(recentMonthlyAverage(analysis, food, 3)).toEqual({ months: 3, average: 3000 });
+  expect(recentMonthlyAverage(analysis, food, 12)).toEqual({ months: 4, average: 4500 });
 });

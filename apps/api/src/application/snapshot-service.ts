@@ -1,7 +1,12 @@
 import type { EnduteService } from "./endute-service";
 import type { MonzoService } from "./monzo-service";
 import type { InlineCorrectionInput } from "./schemas";
-import { calculateNetWorth, calculateRecordedNetWorth, month } from "@wealth/domain";
+import {
+  calculateNetWorth,
+  calculateRecordedNetWorth,
+  hasManualBalance,
+  month,
+} from "@wealth/domain";
 import type { Snapshot } from "@wealth/domain";
 import type { WealthStore } from "../storage/records";
 import type { InvestmentProvider, TradingCredentials } from "../integrations/trading212";
@@ -88,7 +93,8 @@ export class SnapshotService {
     const accounts = (await this.store.accounts.list(userId))
       .map((record) => record.data)
       .filter((account) => !account.archived);
-    const manualAccounts = accounts.filter((account) => !account.automation);
+    const manualAccounts = accounts.filter(hasManualBalance);
+    const syncedAccounts = accounts.filter((account) => !hasManualBalance(account));
     if (
       new Set(input.balances.map((row) => row.accountId)).size !== input.balances.length ||
       input.balances.length !== manualAccounts.length
@@ -104,9 +110,9 @@ export class SnapshotService {
         balance: row.balance,
       };
     });
-    if (accounts.some((account) => account.automation?.provider === "monzo") && !this.banks)
+    if (syncedAccounts.some((account) => account.automation?.provider === "monzo") && !this.banks)
       throw new InputError("Monzo tracking is unavailable.");
-    if (accounts.some((account) => account.automation?.provider === "endute") && !this.endute)
+    if (syncedAccounts.some((account) => account.automation?.provider === "endute") && !this.endute)
       throw new InputError("Endute tracking is unavailable.");
     const connections = (await this.store.connections.list(userId))
       .map((record) => record.data)
@@ -116,13 +122,13 @@ export class SnapshotService {
         this.banks
           ? this.banks.snapshotBalances(
               userId,
-              accounts.filter((account) => account.automation?.provider === "monzo"),
+              syncedAccounts.filter((account) => account.automation?.provider === "monzo"),
             )
           : Promise.resolve([]),
         this.endute
           ? this.endute.snapshotBalances(
               userId,
-              accounts.filter((account) => account.automation?.provider === "endute"),
+              syncedAccounts.filter((account) => account.automation?.provider === "endute"),
             )
           : Promise.resolve([]),
       ]).then((groups) => groups.flat()),

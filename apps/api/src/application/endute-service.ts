@@ -5,7 +5,7 @@ import { EnduteError, type EnduteProvider, type EnduteValuation } from "../integ
 import type { WealthStore } from "../storage/records";
 import { ConflictError } from "../storage/errors";
 import { InputError } from "./snapshot-service";
-import { publicBankConnection } from "./monzo-service";
+import { newlyUnsynced, publicBankConnection, syncedAccount } from "./monzo-service";
 
 export class EnduteService {
   constructor(
@@ -30,7 +30,13 @@ export class EnduteService {
     const tracked = (await this.store.accounts.list(userId)).filter(
       (record) => !record.data.archived && record.data.automation?.connectionId === "endute",
     );
-    if (tracked.some((record) => !value.accountIds.includes(record.data.automation!.externalId)))
+    if (
+      tracked.some(
+        (record) =>
+          !record.data.automation!.unsynced &&
+          !value.accountIds.includes(record.data.automation!.externalId),
+      )
+    )
       throw new InputError(
         "This key does not expose all tracked Endute accounts. Enable them in the portal, or deselect them before changing the key.",
       );
@@ -81,23 +87,15 @@ export class EnduteService {
         throw new EnduteError(
           `${record.data.name}: no supported GBP balance is available. Check Endute before refreshing or recording a snapshot.`,
         );
-      return {
-        expectedVersion: record.version,
-        data: {
-          ...record.data,
-          version: record.version + 1,
-          archived: !balance,
-          ...(balance
-            ? { name: balance.name, kind: balance.kind ?? "cash", workingBalance: balance.balance }
-            : {}),
-        },
-      };
+      return syncedAccount(record, balance);
     });
-    const archived = updates.filter((update) => update.data.archived).length;
+    const unsynced = newlyUnsynced(accounts, updates);
     const warnings = [
       ...value.warnings,
-      ...(archived
-        ? [`${archived} missing Endute accounts were archived. Saved history is unchanged.`]
+      ...(unsynced
+        ? [
+            `${unsynced} Endute ${unsynced === 1 ? "account is" : "accounts are"} no longer available and now unsynced. Enter their balances manually until they return.`,
+          ]
         : []),
     ];
     const updated: BankConnection = {
@@ -197,7 +195,9 @@ export class EnduteService {
     }
     for (const record of existing.filter(
       (record) =>
-        !record.data.archived && !externalIds.includes(record.data.automation!.externalId),
+        !record.data.archived &&
+        !record.data.automation!.unsynced &&
+        !externalIds.includes(record.data.automation!.externalId),
     ))
       updates.push({
         expectedVersion: record.version,
@@ -254,24 +254,23 @@ export class EnduteService {
     const banks = await Promise.all(ids.map((id) => this.refresh(userId, id)));
     return accounts
       .filter((account) => account.automation)
-      .flatMap((account) => {
+      .map((account) => {
         const bank = banks.find((bank) => bank.id === account.automation!.connectionId)!;
         const value = bank.valuation?.balances.find(
           (value) => value.id === account.automation!.externalId,
         );
-        if (!value) return [];
-        return [
-          {
-            accountId: account.id,
-            name: value.name,
-            kind: value.kind ?? "cash",
-            balance: value.balance,
-            automation: {
-              ...account.automation!,
-              fetchedAt: value.fetchedAt ?? bank.valuation!.fetchedAt,
-            },
+        if (!value)
+          throw new InputError(`${account.name} is now unsynced. Reload and enter its balance.`);
+        return {
+          accountId: account.id,
+          name: value.name,
+          kind: value.kind ?? "cash",
+          balance: value.balance,
+          automation: {
+            ...account.automation!,
+            fetchedAt: value.fetchedAt ?? bank.valuation!.fetchedAt,
           },
-        ];
+        };
       });
   }
 }

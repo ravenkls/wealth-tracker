@@ -8,6 +8,7 @@ export {
   accountKindLabels,
   isCashAccount,
   accountAsset,
+  hasManualBalance,
 } from "./account-types";
 export type { ManualAccountKind } from "./account-types";
 export type { NetWorthBalances } from "./net-worth";

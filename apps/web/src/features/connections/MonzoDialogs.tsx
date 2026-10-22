@@ -122,7 +122,12 @@ export function ManageBankDialog({
   const selected =
     selection ??
     data.accounts
-      .filter((account) => !account.archived && account.automation?.connectionId === connection.id)
+      .filter(
+        (account) =>
+          !account.archived &&
+          !account.automation?.unsynced &&
+          account.automation?.connectionId === connection.id,
+      )
       .map((account) => account.automation!.externalId);
   const action = useMutation({
     mutationFn: async (kind: "refresh" | "select" | "disconnect") => {

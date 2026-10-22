@@ -15,7 +15,14 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { formatGbp, formatMonth, month, sumMoney, readingAt } from "@wealth/domain";
+import {
+  formatGbp,
+  formatMonth,
+  hasManualBalance,
+  month,
+  sumMoney,
+  readingAt,
+} from "@wealth/domain";
 import type { Snapshot } from "@wealth/domain";
 import { MoneyField, moneyInput, nullableMoney, readMoney } from "../../components/Fields";
 import { api } from "../../lib/api";
@@ -53,7 +60,7 @@ export function SnapshotDialog({
             archived:
               data.accounts.find((account) => account.id === balance.accountId)?.archived ?? false,
           }))
-      : data.accounts.filter((account) => !account.archived && !account.automation);
+      : data.accounts.filter((account) => !account.archived && hasManualBalance(account));
   const priorBalance = (id: string) =>
     [...data.snapshots]
       .reverse()
@@ -229,7 +236,9 @@ export function SnapshotDialog({
                 />
                 {mode === "current" &&
                   (data.connections.length > 0 ||
-                    data.accounts.some((account) => account.automation && !account.archived)) && (
+                    data.accounts.some(
+                      (account) => !account.archived && !hasManualBalance(account),
+                    )) && (
                     <Typography color="text.secondary" sx={{ fontSize: 13 }}>
                       Connected account balances will be fetched when you record.
                     </Typography>

@@ -1,6 +1,7 @@
 import {
   pence,
   accountKindLabels,
+  hasManualBalance,
   type Snapshot,
   type Pence,
   type PublicConnection,
@@ -62,14 +63,20 @@ export function tradingRows(connection: PublicConnection): ConnectionRow[] {
   return rows;
 }
 
+const providerLabel = (provider: "monzo" | "endute") =>
+  provider === "endute" ? "Endute Connect" : "Monzo";
+
 export function bankRows(
   connections: PublicBankConnection[],
   accounts: ManualAccount[],
 ): ConnectionRow[] {
   return connections.flatMap((connection) => {
-    const provider = connection.provider === "endute" ? "Endute Connect" : "Monzo";
+    const provider = providerLabel(connection.provider);
     const tracked = accounts.filter(
-      (account) => !account.archived && account.automation?.connectionId === connection.id,
+      (account) =>
+        !account.archived &&
+        !hasManualBalance(account) &&
+        account.automation?.connectionId === connection.id,
     );
     if (!tracked.length)
       return [
@@ -119,7 +126,10 @@ export function manualRows(
 ): ConnectionRow[] {
   const latest = [...snapshots].sort((a, b) => b.month.localeCompare(a.month));
   return accounts
-    .filter((account) => !account.automation && (showArchived || !account.archived))
+    .filter(
+      (account) =>
+        (showArchived && account.archived) || (!account.archived && hasManualBalance(account)),
+    )
     .map((account) => {
       const snapshot = latest.find((item) =>
         item.balances.some((balance) => balance.accountId === account.id),
@@ -130,7 +140,10 @@ export function manualRows(
       return {
         id: account.id,
         name: account.name,
-        provider: "Manual",
+        ...(account.automation && !account.archived
+          ? { detail: "Not synced. Enter its balance manually until it returns." }
+          : {}),
+        provider: account.automation ? providerLabel(account.automation.provider) : "Manual",
         type: accountKindLabels[account.kind],
         total: account.workingBalance ?? savedBalance ?? null,
         fetchedAt:

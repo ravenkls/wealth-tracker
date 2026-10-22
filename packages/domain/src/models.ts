@@ -9,7 +9,13 @@ export interface ManualAccount {
   kind: ManualAccountKind;
   archived: boolean;
   workingBalance?: Pence | null;
-  automation?: { provider: "monzo" | "endute"; connectionId: string; externalId: string };
+  automation?: {
+    provider: "monzo" | "endute";
+    connectionId: string;
+    externalId: string;
+    // The provider stopped returning this account; its balance is entered manually until it returns.
+    unsynced?: boolean;
+  };
   version: number;
 }
 export interface BudgetLine {

@@ -792,7 +792,7 @@ it("requires reconnection after an ambiguous one-use refresh failure instead of 
   await expect(f.service.refresh(f.owner, id)).rejects.toThrow("Reconnect");
   expect(f.provider.refresh).toHaveBeenCalledTimes(1);
 });
-it("archives missing pots only after a successful complete refresh", async () => {
+it("unsyncs missing pots only after a successful complete refresh", async () => {
   const f = await monzoFixture();
   const id = await f.service.complete(f.owner, "session", f.state, "code");
   const bank = await f.service.refresh(f.owner, id);
@@ -803,7 +803,8 @@ it("archives missing pots only after a successful complete refresh", async () =>
   f.provider.value.mockResolvedValue({ balances: [], fetchedAt: "2026-09-28T12:00:00Z" });
   await f.service.refresh(f.owner, id);
   expect((await store.accounts.list(f.owner))[0]?.data).toMatchObject({
-    archived: true,
+    archived: false,
+    automation: { unsynced: true },
     workingBalance: 20000,
   });
 });
@@ -1418,7 +1419,7 @@ it("preserves Endute identity on deselection, rejects changed ownership and cros
   await expect(f.service.disconnect(f.owner, monzoId, 1)).rejects.toThrow("not found");
 });
 
-it("retains balances on incomplete Endute data and archives only truly absent accounts", async () => {
+it("retains balances on incomplete Endute data and unsyncs only truly absent accounts", async () => {
   const f = await enduteFixture();
   await f.service.select(f.owner, "endute", ["bank"], 1);
   const original = (await store.accounts.list(f.owner))[0]!;
@@ -1427,10 +1428,23 @@ it("retains balances on incomplete Endute data and archives only truly absent ac
   expect((await store.accounts.get(f.owner, original.id))?.data).toEqual(original.data);
   f.provider.value.mockResolvedValueOnce({ ...f.value, balances: [], accountIds: [] });
   await f.service.refresh(f.owner, "endute");
-  expect((await store.accounts.get(f.owner, original.id))?.data).toMatchObject({
-    archived: true,
+  const unsynced = (await store.accounts.get(f.owner, original.id))!;
+  expect(unsynced.data).toMatchObject({
+    archived: false,
+    automation: { unsynced: true },
     workingBalance: 120000,
   });
+  const { WealthService } = await import("../application/wealth-service");
+  await new WealthService(store).saveAccount(f.owner, {
+    ...unsynced.data,
+    workingBalance: pence(5000),
+    expectedVersion: unsynced.version,
+  });
+  expect((await store.accounts.get(f.owner, original.id))?.data.workingBalance).toBe(5000);
+  await f.service.refresh(f.owner, "endute");
+  const resynced = (await store.accounts.get(f.owner, original.id))!.data;
+  expect(resynced.automation?.unsynced).toBeUndefined();
+  expect(resynced.workingBalance).toBe(120000);
 });
 
 it("persists Endute throttling and prevents concurrent refresh or disconnect", async () => {

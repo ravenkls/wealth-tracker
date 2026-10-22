@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { BankConnection, ManualAccount, PublicBankConnection } from "@wealth/domain";
+import type { BankConnection, ManualAccount, Pence, PublicBankConnection } from "@wealth/domain";
 import type { CredentialCipher } from "../auth/encryption";
 import { hash, token } from "../auth/tokens";
 import {
@@ -24,6 +24,30 @@ export function publicBankConnection(bank: BankConnection): PublicBankConnection
     valuation: bank.valuation,
     error: bank.error,
   };
+}
+type AccountRecord = { data: ManualAccount; version: number };
+export function syncedAccount(
+  record: AccountRecord,
+  balance: { name: string; kind?: ManualAccount["kind"] | null; balance: Pence } | undefined,
+) {
+  const { unsynced: _unsynced, ...automation } = record.data.automation!;
+  return {
+    expectedVersion: record.version,
+    data: {
+      ...record.data,
+      version: record.version + 1,
+      automation: balance ? automation : { ...automation, unsynced: true },
+      ...(balance
+        ? { name: balance.name, kind: balance.kind ?? "cash", workingBalance: balance.balance }
+        : {}),
+    },
+  };
+}
+export function newlyUnsynced(before: AccountRecord[], after: { data: ManualAccount }[]) {
+  return after.filter(
+    (update, index) =>
+      update.data.automation!.unsynced && !before[index]!.data.automation!.unsynced,
+  ).length;
 }
 
 export class MonzoService {
@@ -196,32 +220,21 @@ export class MonzoService {
       const accounts = (await this.store.accounts.list(userId)).filter(
         (record) => record.data.automation?.connectionId === id && !record.data.archived,
       );
-      let archived = 0;
-      const updatedAccounts = accounts.map((record) => {
-        const value = valuation.balances.find(
-          (balance) => balance.id === record.data.automation!.externalId,
-        );
-        if (!value) archived++;
-        return {
-          expectedVersion: record.version,
-          data: {
-            ...record.data,
-            version: record.version + 1,
-            archived: !value,
-            ...(value
-              ? { name: value.name, kind: value.kind ?? "cash", workingBalance: value.balance }
-              : {}),
-          },
-        };
-      });
+      const updatedAccounts = accounts.map((record) =>
+        syncedAccount(
+          record,
+          valuation.balances.find((balance) => balance.id === record.data.automation!.externalId),
+        ),
+      );
+      const unsynced = newlyUnsynced(accounts, updatedAccounts);
       const updated = {
         ...bank,
         version: bank.version + 1,
         valuation,
         status: "ready" as const,
         leaseUntil: 0,
-        error: archived
-          ? `${archived} missing Monzo ${archived === 1 ? "account or pot was" : "accounts or pots were"} archived. Saved history is unchanged.`
+        error: unsynced
+          ? `${unsynced} Monzo ${unsynced === 1 ? "account or pot is" : "accounts or pots are"} no longer available and now unsynced. Enter their balances manually until they return.`
           : null,
       };
       await this.store.saveBankAccounts(userId, updated, bank.version, updatedAccounts);
@@ -277,7 +290,9 @@ export class MonzoService {
     }
     for (const record of existing.filter(
       (record) =>
-        !record.data.archived && !externalIds.includes(record.data.automation!.externalId),
+        !record.data.archived &&
+        !record.data.automation!.unsynced &&
+        !externalIds.includes(record.data.automation!.externalId),
     ))
       updates.push({
         expectedVersion: record.version,
@@ -343,21 +358,20 @@ export class MonzoService {
     const banks = await Promise.all(ids.map((id) => this.refresh(userId, id)));
     return accounts
       .filter((account) => account.automation)
-      .flatMap((account) => {
+      .map((account) => {
         const bank = banks.find((bank) => bank.id === account.automation!.connectionId)!;
         const value = bank.valuation?.balances.find(
           (value) => value.id === account.automation!.externalId,
         );
-        if (!value) return [];
-        return [
-          {
-            accountId: account.id,
-            name: value.name,
-            kind: value.kind ?? "cash",
-            balance: value.balance,
-            automation: { ...account.automation!, fetchedAt: bank.valuation!.fetchedAt },
-          },
-        ];
+        if (!value)
+          throw new InputError(`${account.name} is now unsynced. Reload and enter its balance.`);
+        return {
+          accountId: account.id,
+          name: value.name,
+          kind: value.kind ?? "cash",
+          balance: value.balance,
+          automation: { ...account.automation!, fetchedAt: bank.valuation!.fetchedAt },
+        };
       });
   }
 }

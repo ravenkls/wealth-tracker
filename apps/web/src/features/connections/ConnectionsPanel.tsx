@@ -76,7 +76,7 @@ export function ConnectionsPanel({
             Tracked accounts
           </Typography>
           <Stack direction="row" spacing={1}>
-            {data.accounts.some((account) => !account.automation && account.archived) && (
+            {data.accounts.some((account) => account.archived) && (
               <Button size="small" onClick={() => setShowArchived((value) => !value)}>
                 {showArchived ? "Hide archived" : "Show archived"}
               </Button>
@@ -192,6 +192,7 @@ export function ConnectionsPanel({
               groupable: true,
               value: (row) => {
                 if (row.manual?.archived) return "Archived";
+                if (row.manual?.automation) return "Unsynced";
                 if (row.trading?.disconnected) return "Disconnected";
                 const status = data.bankConnections.find(
                   (connection) => connection.id === row.bankId,

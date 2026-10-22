@@ -35,8 +35,9 @@ export class WealthService {
     },
   ) {
     const existing = await this.store.accounts.get(userId, input.id);
-    if (existing?.data.automation)
-      throw new InputError("Manage automated accounts through their connection.");
+    const automation = existing?.data.automation;
+    if (automation && !automation.unsynced && !existing.data.archived)
+      throw new InputError("Manage synced accounts through their connection.");
     if (
       existing &&
       existing.data.kind !== input.kind &&
@@ -55,6 +56,7 @@ export class WealthService {
           ? (existing?.data.workingBalance ?? null)
           : input.workingBalance,
       version: input.expectedVersion + 1,
+      ...(automation ? { automation: { ...automation, unsynced: true } } : {}),
     };
     await this.store.accounts.save(userId, input.id, data, input.expectedVersion);
     return data;

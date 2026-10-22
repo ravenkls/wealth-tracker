@@ -19,9 +19,11 @@ export const period = z.string().transform((value, ctx) => {
 });
 export const identifier = z.string().min(1).max(200);
 export const expectedVersion = z.number().int().min(0);
+const accountName = z.string().trim().min(1).max(100);
+export const renameAccountInput = z.object({ id: z.uuid(), name: accountName, expectedVersion });
 export const accountInput = z.object({
   id: z.uuid(),
-  name: z.string().trim().min(1).max(100),
+  name: accountName,
   kind: z.enum(manualAccountKinds),
   archived: z.boolean(),
   workingBalance: amount.nullable().optional(),

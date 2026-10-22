@@ -20,6 +20,7 @@ import {
   expectedVersion,
   inlineCorrectionInput,
   accountInput,
+  renameAccountInput,
   budgetInput,
   connectionInput,
   connectionDisplayMode,
@@ -77,6 +78,7 @@ export interface ApiDependencies {
     WealthService,
     | "bootstrap"
     | "saveAccount"
+    | "renameAccount"
     | "saveBudget"
     | "revisions"
     | "savePreferences"
@@ -204,6 +206,9 @@ export function createRouter(d: ApiDependencies) {
       save: protectedProcedure
         .input(accountInput)
         .mutation(({ ctx, input }) => run(() => d.wealth.saveAccount(ctx.user.userId, input))),
+      rename: protectedProcedure
+        .input(renameAccountInput)
+        .mutation(({ ctx, input }) => run(() => d.wealth.renameAccount(ctx.user.userId, input))),
     }),
     budget: router({
       save: protectedProcedure

@@ -5,7 +5,7 @@ import { EnduteError, type EnduteProvider, type EnduteValuation } from "../integ
 import type { WealthStore } from "../storage/records";
 import { ConflictError } from "../storage/errors";
 import { InputError } from "./snapshot-service";
-import { newlyUnsynced, publicBankConnection, syncedAccount } from "./monzo-service";
+import { newlyUnsynced, publicBankConnection, syncedAccount, syncedName } from "./monzo-service";
 
 export class EnduteService {
   constructor(
@@ -184,12 +184,17 @@ export class EnduteService {
         expectedVersion: old?.version ?? 0,
         data: {
           id: old?.id ?? randomUUID(),
-          name: value.name,
+          name: syncedName(old?.data, value.name),
           kind: value.kind ?? "cash",
           archived: false,
           workingBalance: value.balance,
           version: (old?.version ?? 0) + 1,
-          automation: { provider: "endute", connectionId: id, externalId },
+          automation: {
+            provider: "endute",
+            connectionId: id,
+            externalId,
+            ...(old?.data.automation?.renamed ? { renamed: true } : {}),
+          },
         },
       });
     }
@@ -263,7 +268,7 @@ export class EnduteService {
           throw new InputError(`${account.name} is now unsynced. Reload and enter its balance.`);
         return {
           accountId: account.id,
-          name: value.name,
+          name: syncedName(account, value.name),
           kind: value.kind ?? "cash",
           balance: value.balance,
           automation: {

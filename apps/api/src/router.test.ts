@@ -43,6 +43,7 @@ function mockServices() {
       bootstrap: vi.fn<WealthService["bootstrap"]>(),
       savePreferences: vi.fn<WealthService["savePreferences"]>(),
       saveAccount: vi.fn<WealthService["saveAccount"]>(),
+      renameAccount: vi.fn<WealthService["renameAccount"]>(),
       saveBudget: vi.fn<WealthService["saveBudget"]>(),
       revisions: vi.fn<WealthService["revisions"]>(),
     },

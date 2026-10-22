@@ -26,6 +26,8 @@ export function publicBankConnection(bank: BankConnection): PublicBankConnection
   };
 }
 type AccountRecord = { data: ManualAccount; version: number };
+export const syncedName = (account: ManualAccount | undefined, providerName: string) =>
+  account?.automation?.renamed ? account.name : providerName;
 export function syncedAccount(
   record: AccountRecord,
   balance: { name: string; kind?: ManualAccount["kind"] | null; balance: Pence } | undefined,
@@ -38,7 +40,11 @@ export function syncedAccount(
       version: record.version + 1,
       automation: balance ? automation : { ...automation, unsynced: true },
       ...(balance
-        ? { name: balance.name, kind: balance.kind ?? "cash", workingBalance: balance.balance }
+        ? {
+            name: syncedName(record.data, balance.name),
+            kind: balance.kind ?? "cash",
+            workingBalance: balance.balance,
+          }
         : {}),
     },
   };
@@ -279,12 +285,17 @@ export class MonzoService {
         expectedVersion: old?.version ?? 0,
         data: {
           id: old?.id ?? randomUUID(),
-          name: value.name,
+          name: syncedName(old?.data, value.name),
           kind: value.kind ?? "cash",
           archived: false,
           workingBalance: value.balance,
           version: (old?.version ?? 0) + 1,
-          automation: { provider: "monzo", connectionId: id, externalId },
+          automation: {
+            provider: "monzo",
+            connectionId: id,
+            externalId,
+            ...(old?.data.automation?.renamed ? { renamed: true } : {}),
+          },
         },
       });
     }
@@ -367,7 +378,7 @@ export class MonzoService {
           throw new InputError(`${account.name} is now unsynced. Reload and enter its balance.`);
         return {
           accountId: account.id,
-          name: value.name,
+          name: syncedName(account, value.name),
           kind: value.kind ?? "cash",
           balance: value.balance,
           automation: { ...account.automation!, fetchedAt: bank.valuation!.fetchedAt },

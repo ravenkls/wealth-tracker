@@ -1447,6 +1447,36 @@ it("retains balances on incomplete Endute data and unsyncs only truly absent acc
   expect(resynced.workingBalance).toBe(120000);
 });
 
+it("keeps a renamed Endute account's name through refresh and reselection", async () => {
+  const f = await enduteFixture();
+  await f.service.select(f.owner, "endute", ["bank"], 1);
+  const account = (await store.accounts.list(f.owner))[0]!;
+  const { WealthService } = await import("../application/wealth-service");
+  await new WealthService(store).renameAccount(f.owner, {
+    id: account.id,
+    name: "Joint account",
+    expectedVersion: account.version,
+  });
+  await f.service.refresh(f.owner, "endute");
+  await f.service.select(
+    f.owner,
+    "endute",
+    [],
+    (await store.banks.get(f.owner, "endute"))!.version,
+  );
+  await f.service.select(
+    f.owner,
+    "endute",
+    ["bank"],
+    (await store.banks.get(f.owner, "endute"))!.version,
+  );
+  expect((await store.accounts.get(f.owner, account.id))?.data).toMatchObject({
+    name: "Joint account",
+    archived: false,
+    automation: { renamed: true },
+  });
+});
+
 it("persists Endute throttling and prevents concurrent refresh or disconnect", async () => {
   const f = await enduteFixture();
   const { EnduteError } = await import("../integrations/endute");

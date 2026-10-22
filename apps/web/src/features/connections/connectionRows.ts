@@ -13,12 +13,14 @@ export interface ConnectionRow {
   id: string;
   name: string;
   detail?: string;
+  warning?: string;
   provider: string;
   type: string;
   total: Pence | null;
   fetchedAt: string | null;
   trading?: PublicConnection;
   bankId?: string;
+  synced?: ManualAccount;
   manual?: ManualAccount;
 }
 
@@ -70,7 +72,7 @@ export function bankRows(
   connections: PublicBankConnection[],
   accounts: ManualAccount[],
 ): ConnectionRow[] {
-  return connections.flatMap((connection) => {
+  return connections.flatMap((connection): ConnectionRow[] => {
     const provider = providerLabel(connection.provider);
     const tracked = accounts.filter(
       (account) =>
@@ -78,18 +80,22 @@ export function bankRows(
         !hasManualBalance(account) &&
         account.automation?.connectionId === connection.id,
     );
+    const warning =
+      connection.error ??
+      (connection.status === "reconnect" ? "Reconnect to load balances" : undefined);
     if (!tracked.length)
       return [
         {
           id: `${connection.provider}:${connection.id}`,
           name: provider,
-          detail:
-            connection.error ??
-            (connection.status === "awaiting-approval"
-              ? "Approve access in the Monzo app"
-              : connection.status === "reconnect"
-                ? "Reconnect to load balances"
-                : "Choose accounts to track"),
+          ...(warning
+            ? { warning }
+            : {
+                detail:
+                  connection.status === "awaiting-approval"
+                    ? "Approve access in the Monzo app"
+                    : "Choose accounts to track",
+              }),
           provider,
           type: "Connection",
           total: null,
@@ -100,11 +106,7 @@ export function bankRows(
     return tracked.map((account) => ({
       id: account.id,
       name: account.name,
-      ...(connection.error
-        ? { detail: connection.error }
-        : connection.status === "reconnect"
-          ? { detail: "Reconnect to load balances" }
-          : {}),
+      ...(warning ? { warning } : {}),
       provider,
       type: account.kind === "debt" ? "Debt" : "Cash",
       total: account.workingBalance ?? null,
@@ -115,6 +117,7 @@ export function bankRows(
         connection.valuation?.fetchedAt ??
         null,
       bankId: connection.id,
+      synced: account,
     }));
   });
 }
@@ -141,7 +144,7 @@ export function manualRows(
         id: account.id,
         name: account.name,
         ...(account.automation && !account.archived
-          ? { detail: "Not synced. Enter its balance manually until it returns." }
+          ? { warning: "Not synced. Enter its balance manually until it returns." }
           : {}),
         provider: account.automation ? providerLabel(account.automation.provider) : "Manual",
         type: accountKindLabels[account.kind],

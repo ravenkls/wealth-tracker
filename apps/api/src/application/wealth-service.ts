@@ -56,7 +56,31 @@ export class WealthService {
           ? (existing?.data.workingBalance ?? null)
           : input.workingBalance,
       version: input.expectedVersion + 1,
-      ...(automation ? { automation: { ...automation, unsynced: true } } : {}),
+      ...(automation
+        ? {
+            automation: {
+              ...automation,
+              unsynced: true,
+              ...(input.name !== existing.data.name ? { renamed: true } : {}),
+            },
+          }
+        : {}),
+    };
+    await this.store.accounts.save(userId, input.id, data, input.expectedVersion);
+    return data;
+  }
+  async renameAccount(
+    userId: string,
+    input: { id: string; name: string; expectedVersion: number },
+  ) {
+    const existing = await this.store.accounts.get(userId, input.id);
+    if (!existing) throw new InputError("Account not found.");
+    const { automation } = existing.data;
+    const data: ManualAccount = {
+      ...existing.data,
+      name: input.name,
+      version: input.expectedVersion + 1,
+      ...(automation ? { automation: { ...automation, renamed: true } } : {}),
     };
     await this.store.accounts.save(userId, input.id, data, input.expectedVersion);
     return data;

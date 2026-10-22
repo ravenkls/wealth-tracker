@@ -15,6 +15,8 @@ export interface ManualAccount {
     externalId: string;
     // The provider stopped returning this account; its balance is entered manually until it returns.
     unsynced?: boolean;
+    // The user chose this name, so refreshes keep it instead of the provider's.
+    renamed?: boolean;
   };
   version: number;
 }

@@ -140,7 +140,7 @@ it("labels Endute rows and uses each account's cached balance timestamp", () => 
       type: "Debt",
       total: -100,
       fetchedAt: "2026-09-28T12:00:00Z",
-      detail: "Renew bank consent",
+      warning: "Renew bank consent",
     },
   ]);
 });

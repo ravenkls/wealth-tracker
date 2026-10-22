@@ -16,6 +16,7 @@ const paths = {
   more: "M11 6a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M11 18a1 1 0 1 0 2 0a1 1 0 1 0-2 0",
   trash: "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13",
   arrow: "M5 16 16 5 M5 5h11v11",
+  warning: "M12 3 2 20h20L12 3z M12 10v4 M12 17h.01",
 };
 export function Icon({ name, size = 19 }: { name: keyof typeof paths; size?: number }) {
   return (

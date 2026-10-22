@@ -10,8 +10,11 @@ import {
   Paper,
   Stack,
   SvgIcon,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import { Icon } from "../../components/Icon";
+import { RenameAccountDialog } from "./RenameAccountDialog";
 import { formatGbp, type ManualAccount } from "@wealth/domain";
 import { ConnectMonzoDialog, ManageBankDialog } from "./MonzoDialogs";
 import { ConnectTradingDialog, ManageTradingDialog } from "./TradingDialogs";
@@ -32,6 +35,7 @@ export function ConnectionsPanel({
   readonly onEditManual: (account: ManualAccount) => void;
 }) {
   const [showArchived, setShowArchived] = useState(false);
+  const [renaming, setRenaming] = useState<ManualAccount | null>(null);
   const saving = useTableSave();
   const [enduteConnect, setEnduteConnect] = useState(false);
   const [open, setOpen] = useState(false);
@@ -134,7 +138,20 @@ export function ConnectionsPanel({
               value: (row) => row.name,
               render: (row) => (
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography sx={{ fontSize: 14 }}>{row.name}</Typography>
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+                    <Typography sx={{ fontSize: 14 }}>{row.name}</Typography>
+                    {row.warning && (
+                      <Tooltip title={row.warning}>
+                        <IconButton
+                          size="small"
+                          aria-label={`Warning: ${row.warning}`}
+                          sx={{ p: 0.25, color: "warning.main" }}
+                        >
+                          <Icon name="warning" size={16} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Stack>
                   {row.detail && (
                     <Typography
                       color="text.secondary"
@@ -275,48 +292,60 @@ export function ConnectionsPanel({
         open={!!rowMenu}
         onClose={() => setRowMenu(null)}
       >
-        {rowMenu?.row.manual ? (
-          [
-            <MenuItem
-              key="edit"
-              onClick={() => {
-                if (rowMenu.row.manual) onEditManual(rowMenu.row.manual);
-                setRowMenu(null);
-              }}
-            >
-              Edit account
-            </MenuItem>,
-            <MenuItem
-              key="archive"
-              onClick={() => {
-                const account = rowMenu.row.manual;
-                setRowMenu(null);
-                if (account)
-                  void saving
-                    .save(() =>
-                      api.accounts.save.mutate({
-                        ...account,
-                        archived: !account.archived,
-                        expectedVersion: account.version,
-                      }),
-                    )
-                    .catch(() => {});
-              }}
-            >
-              {rowMenu.row.manual.archived ? "Restore account" : "Archive account"}
-            </MenuItem>,
-          ]
-        ) : (
-          <MenuItem
-            onClick={() => {
-              if (rowMenu?.row.trading) setTradingId(rowMenu.row.trading.id);
-              else if (rowMenu?.row.bankId) setMonzoId(rowMenu.row.bankId);
-              setRowMenu(null);
-            }}
-          >
-            {`Manage ${rowMenu?.row.provider ?? "connection"}`}
-          </MenuItem>
-        )}
+        {rowMenu?.row.manual
+          ? [
+              <MenuItem
+                key="edit"
+                onClick={() => {
+                  if (rowMenu.row.manual) onEditManual(rowMenu.row.manual);
+                  setRowMenu(null);
+                }}
+              >
+                Edit account
+              </MenuItem>,
+              <MenuItem
+                key="archive"
+                onClick={() => {
+                  const account = rowMenu.row.manual;
+                  setRowMenu(null);
+                  if (account)
+                    void saving
+                      .save(() =>
+                        api.accounts.save.mutate({
+                          ...account,
+                          archived: !account.archived,
+                          expectedVersion: account.version,
+                        }),
+                      )
+                      .catch(() => {});
+                }}
+              >
+                {rowMenu.row.manual.archived ? "Restore account" : "Archive account"}
+              </MenuItem>,
+            ]
+          : [
+              rowMenu?.row.synced && (
+                <MenuItem
+                  key="rename"
+                  onClick={() => {
+                    setRenaming(rowMenu.row.synced ?? null);
+                    setRowMenu(null);
+                  }}
+                >
+                  Rename account
+                </MenuItem>
+              ),
+              <MenuItem
+                key="manage"
+                onClick={() => {
+                  if (rowMenu?.row.trading) setTradingId(rowMenu.row.trading.id);
+                  else if (rowMenu?.row.bankId) setMonzoId(rowMenu.row.bankId);
+                  setRowMenu(null);
+                }}
+              >
+                {`Manage ${rowMenu?.row.provider ?? "connection"}`}
+              </MenuItem>,
+            ]}
       </Menu>
       {monzoConnect !== null && (
         <ConnectMonzoDialog
@@ -358,6 +387,7 @@ export function ConnectionsPanel({
         />
       )}
       {open && <ConnectTradingDialog onClose={() => setOpen(false)} />}
+      {renaming && <RenameAccountDialog account={renaming} onClose={() => setRenaming(null)} />}
     </>
   );
 }
